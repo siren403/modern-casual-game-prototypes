@@ -648,15 +648,15 @@ export class CircuitSketchPrototype {
   private drawGuide(): void {
     this.guideLayer.clear();
     if (this.dragging || this.poweredLampKeys.size > 0) return;
-    const starts = [...this.cells.values()].filter(({ cell }) => cell.token === 'B');
-    const lamps = [...this.cells.values()].filter(({ cell }) => cell.token === 'L');
-    const start = starts[0];
-    const lamp = lamps[0];
-    if (!start || !lamp) return;
+    const guideCells = this.getPrimaryGuidePath();
+    const start = guideCells[0];
+    const lamp = guideCells[guideCells.length - 1];
+    if (!start || !lamp || guideCells.length < 2) return;
 
     const pulse = 0.5 + Math.sin(this.guideClock) * 0.5;
     const startCenter = this.centerOfView(start);
     const lampCenter = this.centerOfView(lamp);
+    const points = guideCells.map((cell) => this.centerOfView(cell));
     this.guideLayer.circle(startCenter.x, startCenter.y, start.size * (0.45 + pulse * 0.08)).stroke({
       width: 4,
       color: palette.guide,
@@ -667,16 +667,108 @@ export class CircuitSketchPrototype {
       color: palette.lampOn,
       alpha: 0.75
     });
-    this.guideLayer.moveTo(startCenter.x, startCenter.y).lineTo(lampCenter.x, lampCenter.y).stroke({
-      width: 5,
-      color: palette.guide,
-      alpha: 0.2,
-      cap: 'round'
-    });
-    const t = (Math.sin(this.guideClock * 0.75) + 1) / 2;
-    this.guideLayer.circle(startCenter.x + (lampCenter.x - startCenter.x) * t, startCenter.y + (lampCenter.y - startCenter.y) * t, 9)
+    this.drawGuideDashes(points);
+    this.drawGuideArrow(points[points.length - 2], points[points.length - 1]);
+    const t = (this.guideClock * 0.42) % 1;
+    const finger = this.pointOnPolyline(points, t);
+    this.guideLayer.circle(finger.x, finger.y, 10)
       .fill(0xffffff)
       .stroke({ width: 3, color: palette.guide, alpha: 0.9 });
+  }
+
+  private getPrimaryGuidePath(): CellView[] {
+    const start = [...this.cells.values()].find(({ cell }) => cell.token === 'B');
+    if (!start) return [];
+
+    const visited = new Set<string>([this.key(start.cell)]);
+    const path = [start];
+    let current = start;
+
+    while (current.cell.token !== 'L') {
+      const next = this.getAdjacentCellViews(current.cell)
+        .filter((view) => !visited.has(this.key(view.cell)))
+        .find(({ cell }) => cell.token === 'W' || cell.token === 'L');
+      if (!next) break;
+      path.push(next);
+      visited.add(this.key(next.cell));
+      current = next;
+    }
+
+    if (path[path.length - 1]?.cell.token === 'L') return path;
+
+    const lamp = [...this.cells.values()].find(({ cell }) => cell.token === 'L');
+    return start && lamp ? [start, lamp] : [];
+  }
+
+  private getAdjacentCellViews(cell: Cell): CellView[] {
+    return [
+      { row: cell.row, col: cell.col + 1 },
+      { row: cell.row + 1, col: cell.col },
+      { row: cell.row - 1, col: cell.col },
+      { row: cell.row, col: cell.col - 1 }
+    ]
+      .map((position) => this.cells.get(this.key(position)))
+      .filter((view): view is CellView => Boolean(view));
+  }
+
+  private drawGuideDashes(points: Array<{ x: number; y: number }>): void {
+    for (let index = 1; index < points.length; index += 1) {
+      const from = points[index - 1];
+      const to = points[index];
+      const dx = to.x - from.x;
+      const dy = to.y - from.y;
+      const length = Math.hypot(dx, dy);
+      const dash = 13;
+      const gap = 10;
+
+      for (let offset = 14; offset < length - 8; offset += dash + gap) {
+        const startT = offset / length;
+        const endT = Math.min(offset + dash, length - 8) / length;
+        this.guideLayer
+          .moveTo(from.x + dx * startT, from.y + dy * startT)
+          .lineTo(from.x + dx * endT, from.y + dy * endT)
+          .stroke({ width: 6, color: palette.guide, alpha: 0.48, cap: 'round' });
+      }
+    }
+  }
+
+  private drawGuideArrow(from: { x: number; y: number }, to: { x: number; y: number }): void {
+    const angle = Math.atan2(to.y - from.y, to.x - from.x);
+    const distanceFromTarget = 30;
+    const tip = {
+      x: to.x - Math.cos(angle) * distanceFromTarget,
+      y: to.y - Math.sin(angle) * distanceFromTarget
+    };
+    const size = 12;
+
+    this.guideLayer
+      .moveTo(tip.x, tip.y)
+      .lineTo(tip.x - Math.cos(angle - 0.6) * size, tip.y - Math.sin(angle - 0.6) * size)
+      .moveTo(tip.x, tip.y)
+      .lineTo(tip.x - Math.cos(angle + 0.6) * size, tip.y - Math.sin(angle + 0.6) * size)
+      .stroke({ width: 5, color: palette.guide, alpha: 0.72, cap: 'round', join: 'round' });
+  }
+
+  private pointOnPolyline(points: Array<{ x: number; y: number }>, t: number): { x: number; y: number } {
+    const lengths = points.slice(1).map((point, index) => Math.hypot(point.x - points[index].x, point.y - points[index].y));
+    const total = lengths.reduce((sum, length) => sum + length, 0);
+    let distance = total * t;
+
+    for (let index = 1; index < points.length; index += 1) {
+      const segment = lengths[index - 1];
+      if (distance <= segment) {
+        const localT = segment === 0 ? 0 : distance / segment;
+        const from = points[index - 1];
+        const to = points[index];
+        return {
+          x: from.x + (to.x - from.x) * localT,
+          y: from.y + (to.y - from.y) * localT
+        };
+      }
+      distance -= segment;
+    }
+
+    return points[points.length - 1];
   }
 
   private flashCell(cell: Cell, color: number): void {
