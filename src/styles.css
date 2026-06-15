@@ -7,6 +7,13 @@
   color: #16181d;
 }
 
+html,
+body,
+#app {
+  width: 100%;
+  min-height: 100%;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -14,10 +21,8 @@
 body {
   margin: 0;
   min-width: 320px;
-  min-height: 100vh;
-  -webkit-touch-callout: none;
-  -webkit-user-select: none;
-  user-select: none;
+  min-height: 100dvh;
+  overscroll-behavior: none;
 }
 
 button,
@@ -30,9 +35,62 @@ a {
 }
 
 .shell {
-  min-height: 100vh;
+  min-height: 100dvh;
   display: grid;
   grid-template-rows: auto 1fr;
+}
+
+html.is-game-route,
+body.is-game-route {
+  overflow: hidden;
+  position: fixed;
+  inset: 0;
+  height: 100%;
+  width: 100%;
+}
+
+.app-game .shell {
+  position: fixed;
+  inset: 0;
+  display: block;
+  min-height: 0;
+  overflow: hidden;
+  background: #f4f7f9;
+}
+
+.game-shell {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100dvh;
+  min-height: 100svh;
+  overflow: hidden;
+  background: #f4f7f9;
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  overscroll-behavior: none;
+}
+
+.game-stage {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.game-stage canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .topbar {

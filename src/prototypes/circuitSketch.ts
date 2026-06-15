@@ -8,6 +8,7 @@ import {
 } from 'pixi.js';
 
 type Token = 'B' | 'W' | 'L' | 'X' | '.';
+type Tone = 'neutral' | 'good' | 'bad';
 
 type Cell = {
   row: number;
@@ -23,10 +24,17 @@ type Board = {
   requiredLamps: number;
 };
 
+type CellView = {
+  cell: Cell;
+  x: number;
+  y: number;
+  size: number;
+};
+
 type CircuitSketchOptions = {
   container: HTMLElement;
-  onStatus: (message: string, tone: 'neutral' | 'good' | 'bad') => void;
-  onBoardChange: (board: Board, powered: number) => void;
+  buildId: string;
+  onExit: () => void;
 };
 
 const boards: Board[] = [
@@ -62,42 +70,61 @@ const boards: Board[] = [
 ];
 
 const palette = {
-  background: 0xf0f4f7,
-  board: 0xffffff,
-  boardLine: 0xd1dae6,
+  background: 0xf4f7f9,
+  panel: 0xffffff,
+  line: 0xd4dde8,
+  text: 0x18212f,
+  muted: 0x5c6675,
   battery: 0xf2c94c,
-  batteryStroke: 0x916b00,
+  batteryStroke: 0x8f6500,
   wire: 0xcfd7e3,
-  wireStroke: 0x7b8797,
+  wireStroke: 0x7a8798,
   lamp: 0xf7f0bf,
-  lampOn: 0xffd861,
-  lampStroke: 0x9d7d16,
+  lampOn: 0xffd65a,
+  lampStroke: 0x957415,
   broken: 0x2f3540,
-  path: 0x2c7be5,
-  pathGood: 0x30a46c,
-  pathBad: 0xdb4b4b,
-  text: 0x1f2937
+  path: 0x2670d9,
+  pathGood: 0x2f9e68,
+  pathBad: 0xd64545,
+  guide: 0x1f7a5b
 };
 
-const labelStyle = new TextStyle({
-  fontFamily: 'Inter, system-ui, Apple SD Gothic Neo, Malgun Gothic, sans-serif',
-  fontSize: 17,
-  fontWeight: '700',
-  fill: palette.text
-});
+const fontFamily = 'Inter, system-ui, Apple SD Gothic Neo, Malgun Gothic, sans-serif';
+
+const styles = {
+  title: new TextStyle({ fontFamily, fontSize: 25, fontWeight: '800', fill: palette.text }),
+  body: new TextStyle({ fontFamily, fontSize: 15, fontWeight: '600', fill: palette.muted }),
+  small: new TextStyle({ fontFamily, fontSize: 12, fontWeight: '600', fill: palette.muted }),
+  label: new TextStyle({ fontFamily, fontSize: 18, fontWeight: '800', fill: palette.text }),
+  toast: new TextStyle({ fontFamily, fontSize: 16, fontWeight: '800', fill: palette.text }),
+  button: new TextStyle({ fontFamily, fontSize: 14, fontWeight: '800', fill: palette.text })
+};
 
 export class CircuitSketchPrototype {
   private readonly app = new Application();
   private readonly root = new Container();
-  private readonly cells = new Map<string, { cell: Cell; graphic: Container }>();
+  private readonly boardLayer = new Container();
+  private readonly completedPathLayer = new Graphics();
   private readonly pathLayer = new Graphics();
+  private readonly feedbackLayer = new Graphics();
+  private readonly guideLayer = new Graphics();
+  private readonly hudLayer = new Container();
+  private readonly modalLayer = new Container();
+  private readonly cells = new Map<string, CellView>();
   private readonly options: CircuitSketchOptions;
   private boardIndex = 0;
   private path: Cell[] = [];
+  private completedPaths: Cell[][] = [];
   private poweredLampKeys = new Set<string>();
   private dragging = false;
-  private pointerIsDown = false;
+  private pointerId: number | undefined;
+  private previewPoint: { x: number; y: number } | undefined;
+  private toast = '전지에서 전구까지 드래그하세요.';
+  private tone: Tone = 'neutral';
+  private unlockedLevelControls = false;
+  private guideClock = 0;
   private resizeObserver?: ResizeObserver;
+  private resetTimer?: ReturnType<typeof window.setTimeout>;
 
   constructor(options: CircuitSketchOptions) {
     this.options = options;
@@ -108,121 +135,153 @@ export class CircuitSketchPrototype {
       background: palette.background,
       antialias: true,
       autoDensity: true,
-      resolution: window.devicePixelRatio || 1,
+      resolution: Math.min(window.devicePixelRatio || 1, 2),
       resizeTo: this.options.container
     });
 
+    this.app.canvas.setAttribute('aria-label', '서킷 스케치 플레이 캔버스');
+    this.app.canvas.style.display = 'block';
+    this.app.canvas.style.width = '100%';
+    this.app.canvas.style.height = '100%';
+    this.app.canvas.style.touchAction = 'none';
+    this.app.canvas.style.userSelect = 'none';
     this.options.container.replaceChildren(this.app.canvas);
+
+    this.root.addChild(
+      this.boardLayer,
+      this.completedPathLayer,
+      this.pathLayer,
+      this.feedbackLayer,
+      this.guideLayer,
+      this.hudLayer,
+      this.modalLayer
+    );
     this.app.stage.addChild(this.root);
-    this.root.addChild(this.pathLayer);
     this.app.stage.eventMode = 'static';
     this.app.stage.hitArea = this.app.screen;
-    this.app.stage.on('pointermove', (event) => this.extendPathAt(event.global.x, event.global.y));
-    this.app.stage.on('pointerup', () => this.endPointer());
-    this.app.stage.on('pointerupoutside', () => this.endPointer());
-    this.app.stage.on('pointercancel', () => this.endPointer());
+    this.app.stage.on('pointerdown', (event) => this.onPointerDown(event));
+    this.app.stage.on('pointermove', (event) => this.onPointerMove(event));
+    this.app.stage.on('pointerup', (event) => this.onPointerUp(event));
+    this.app.stage.on('pointerupoutside', (event) => this.onPointerUp(event));
+    this.app.stage.on('pointercancel', (event) => this.onPointerCancel(event));
+    this.app.ticker.add(this.animateGuide);
 
-    this.resizeObserver = new ResizeObserver(() => this.renderBoard());
+    this.resizeObserver = new ResizeObserver(() => this.renderScene());
     this.resizeObserver.observe(this.options.container);
     this.setBoard(0);
   }
 
   destroy(): void {
+    window.clearTimeout(this.resetTimer);
     this.resizeObserver?.disconnect();
+    this.app.ticker.remove(this.animateGuide);
     this.app.destroy(true, { children: true });
   }
 
-  getBoards(): Board[] {
-    return boards;
-  }
-
-  setBoard(index: number): void {
+  private setBoard(index: number): void {
     this.boardIndex = index;
     this.path = [];
+    this.completedPaths = [];
     this.poweredLampKeys = new Set();
     this.dragging = false;
-    this.pointerIsDown = false;
-    this.options.onStatus('노란 전지를 탭한 뒤, 옆 칸 전선을 순서대로 탭하세요.', 'neutral');
-    this.options.onBoardChange(this.currentBoard, 0);
-    this.renderBoard();
+    this.pointerId = undefined;
+    this.previewPoint = undefined;
+    this.toast = '전지에서 전구까지 드래그하세요.';
+    this.tone = 'neutral';
+    this.renderScene();
   }
 
   private get currentBoard(): Board {
     return boards[this.boardIndex];
   }
 
+  private get isLandscapeBlocked(): boolean {
+    const { width, height } = this.app.screen;
+    return width > height && width >= 640;
+  }
+
+  private renderScene(): void {
+    this.boardLayer.removeChildren();
+    this.hudLayer.removeChildren();
+    this.modalLayer.removeChildren();
+    this.cells.clear();
+    this.completedPathLayer.clear();
+    this.pathLayer.clear();
+    this.feedbackLayer.clear();
+    this.guideLayer.clear();
+    this.app.stage.hitArea = this.app.screen;
+
+    if (this.isLandscapeBlocked) {
+      this.renderOrientationPrompt();
+      return;
+    }
+
+    this.renderBoard();
+    this.drawCompletedPaths();
+    this.drawActivePath(palette.path);
+    this.drawGuide();
+    this.renderHud();
+  }
+
   private renderBoard(): void {
     const board = this.currentBoard;
-    this.root.removeChildren();
-    this.cells.clear();
-
     const rows = board.grid.length;
     const cols = Math.max(...board.grid.map((row) => row.length));
     const width = this.app.screen.width;
     const height = this.app.screen.height;
-    const cellSize = Math.min(128, Math.floor(Math.min(width / (cols + 1.5), height / (rows + 1.6))));
-    const gap = Math.max(8, cellSize * 0.12);
+    const topSpace = Math.max(112, height * 0.18);
+    const bottomSpace = this.unlockedLevelControls ? 116 : 86;
+    const usableWidth = Math.max(260, width - 30);
+    const usableHeight = Math.max(220, height - topSpace - bottomSpace);
+    const cellSize = Math.floor(Math.min(104, usableWidth / (cols + 0.55), usableHeight / (rows + 0.25)));
+    const gap = Math.max(8, Math.floor(cellSize * 0.11));
     const boardWidth = cols * cellSize + (cols - 1) * gap;
     const boardHeight = rows * cellSize + (rows - 1) * gap;
     const originX = (width - boardWidth) / 2;
-    const originY = (height - boardHeight) / 2;
+    const originY = topSpace + (usableHeight - boardHeight) / 2;
 
-    const boardPlate = new Graphics();
-    boardPlate
-      .roundRect(originX - 18, originY - 18, boardWidth + 36, boardHeight + 36, 18)
-      .fill(palette.board)
-      .stroke({ width: 1, color: palette.boardLine });
-    this.root.addChild(boardPlate);
-    this.root.addChild(this.pathLayer);
+    const plate = new Graphics();
+    plate
+      .roundRect(originX - 14, originY - 14, boardWidth + 28, boardHeight + 28, 16)
+      .fill(palette.panel)
+      .stroke({ width: 1, color: palette.line });
+    this.boardLayer.addChild(plate);
 
     board.grid.forEach((row, rowIndex) => {
       row.forEach((token, colIndex) => {
         const cell: Cell = { row: rowIndex, col: colIndex, token };
         const x = originX + colIndex * (cellSize + gap);
         const y = originY + rowIndex * (cellSize + gap);
-        const graphic = this.createCellGraphic(cell, x, y, cellSize);
-        this.cells.set(this.key(cell), { cell, graphic });
-        this.root.addChild(graphic);
+        this.cells.set(this.key(cell), { cell, x, y, size: cellSize });
+        this.boardLayer.addChild(this.createCellGraphic(cell, x, y, cellSize));
       });
     });
-
-    this.drawPath(palette.path);
   }
 
   private createCellGraphic(cell: Cell, x: number, y: number, size: number): Container {
     const container = new Container();
     container.x = x;
     container.y = y;
-    container.eventMode = cell.token === 'X' || cell.token === '.' ? 'static' : 'dynamic';
-    container.cursor = cell.token === 'X' || cell.token === '.' ? 'not-allowed' : 'pointer';
 
     const shape = new Graphics();
     const powered = this.poweredLampKeys.has(this.key(cell));
 
     if (cell.token === 'X') {
-      shape.roundRect(0, 0, size, size, 14).fill(palette.broken);
+      shape.roundRect(0, 0, size, size, 12).fill(palette.broken);
       shape.moveTo(size * 0.25, size * 0.28).lineTo(size * 0.75, size * 0.72).stroke({ width: 5, color: 0xffffff });
       shape.moveTo(size * 0.75, size * 0.28).lineTo(size * 0.25, size * 0.72).stroke({ width: 5, color: 0xffffff });
     } else {
-      shape.roundRect(0, 0, size, size, 14).fill(0xffffff).stroke({ width: 1, color: palette.boardLine });
+      shape.roundRect(0, 0, size, size, 12).fill(0xffffff).stroke({ width: 1, color: palette.line });
       this.drawToken(shape, cell.token, size, powered);
     }
 
-    const label = new Text({ text: this.labelFor(cell.token), style: labelStyle });
+    const label = new Text({ text: this.labelFor(cell.token), style: styles.label });
     label.anchor.set(0.5);
     label.x = size / 2;
     label.y = size / 2;
 
     container.addChild(shape);
-    if (cell.token !== '.') {
-      container.addChild(label);
-    }
-
-    container.on('pointerdown', (event) => this.handleCellInput(cell, event));
-    container.on('pointerover', () => {
-      if (this.pointerIsDown) this.addCellToPath(cell);
-    });
-
+    if (cell.token !== '.') container.addChild(label);
     return container;
   }
 
@@ -231,16 +290,16 @@ export class CircuitSketchPrototype {
     const cy = size / 2;
 
     if (token === 'B') {
-      shape.roundRect(size * 0.24, size * 0.33, size * 0.48, size * 0.34, 8).fill(palette.battery).stroke({
+      shape.roundRect(size * 0.23, size * 0.33, size * 0.5, size * 0.34, 8).fill(palette.battery).stroke({
         width: 3,
         color: palette.batteryStroke
       });
-      shape.roundRect(size * 0.72, size * 0.43, size * 0.08, size * 0.14, 3).fill(palette.batteryStroke);
+      shape.roundRect(size * 0.72, size * 0.43, size * 0.09, size * 0.14, 3).fill(palette.batteryStroke);
     }
 
     if (token === 'W') {
-      shape.moveTo(size * 0.16, cy).lineTo(size * 0.84, cy).stroke({ width: 10, color: palette.wireStroke });
-      shape.moveTo(size * 0.16, cy).lineTo(size * 0.84, cy).stroke({ width: 5, color: palette.wire });
+      shape.moveTo(size * 0.15, cy).lineTo(size * 0.85, cy).stroke({ width: 10, color: palette.wireStroke });
+      shape.moveTo(size * 0.15, cy).lineTo(size * 0.85, cy).stroke({ width: 5, color: palette.wire });
     }
 
     if (token === 'L') {
@@ -248,130 +307,235 @@ export class CircuitSketchPrototype {
         width: 3,
         color: palette.lampStroke
       });
-      shape.moveTo(cx - size * 0.14, cy + size * 0.28).lineTo(cx + size * 0.14, cy + size * 0.28).stroke({
+      shape.moveTo(cx - size * 0.15, cy + size * 0.29).lineTo(cx + size * 0.15, cy + size * 0.29).stroke({
         width: 4,
         color: palette.lampStroke
       });
-      if (powered) {
-        shape.circle(cx, cy, size * 0.36).stroke({ width: 4, color: 0xffef9a, alpha: 0.9 });
-      }
+      if (powered) shape.circle(cx, cy, size * 0.38).stroke({ width: 4, color: 0xffe890, alpha: 0.88 });
     }
   }
 
-  private labelFor(token: Token): string {
-    if (token === 'B') return '전';
-    if (token === 'W') return '선';
-    if (token === 'L') return '등';
-    return '';
+  private renderHud(): void {
+    this.hudLayer.removeChildren();
+    const { width, height } = this.app.screen;
+    const board = this.currentBoard;
+    const powered = this.poweredLampKeys.size;
+    const complete = powered >= board.requiredLamps;
+
+    const title = this.addText('서킷 스케치', styles.title, 20, 16);
+    title.anchor.set(0, 0);
+    const goal = this.addText(`${board.title} · ${board.goal}`, styles.body, 20, 50);
+    goal.anchor.set(0, 0);
+    const progress = this.addText(`${powered}/${board.requiredLamps} 전구`, styles.body, width - 20, 50);
+    progress.anchor.set(1, 0);
+
+    const toastWidth = Math.min(width - 30, 390);
+    const toastBox = new Graphics();
+    const toastColor = this.tone === 'good' ? 0xe9f8ef : this.tone === 'bad' ? 0xffeeee : 0xffffff;
+    const toastLine = this.tone === 'good' ? palette.pathGood : this.tone === 'bad' ? palette.pathBad : palette.line;
+    toastBox
+      .roundRect((width - toastWidth) / 2, height - 74, toastWidth, 44, 10)
+      .fill(toastColor)
+      .stroke({ width: 1, color: toastLine });
+    this.hudLayer.addChild(toastBox);
+
+    const toast = this.addText(this.toast, styles.toast, width / 2, height - 52);
+    toast.anchor.set(0.5);
+
+    this.hudLayer.addChild(this.createButton('목록', 20, height - 66, 62, 36, () => this.options.onExit()));
+    this.hudLayer.addChild(this.createButton('리셋', width - 82, height - 66, 62, 36, () => this.setBoard(this.boardIndex)));
+
+    if (complete) {
+      const next = this.boardIndex === boards.length - 1 ? 0 : this.boardIndex + 1;
+      this.hudLayer.addChild(this.createButton('다음', width - 82, 16, 62, 36, () => this.setBoard(next)));
+    }
+
+    if (this.unlockedLevelControls) {
+      const startX = Math.max(92, width / 2 - 91);
+      boards.forEach((_, index) => {
+        const active = index === this.boardIndex;
+        this.hudLayer.addChild(
+          this.createButton(`${index + 1}`, startX + index * 62, height - 116, 46, 34, () => this.setBoard(index), active)
+        );
+      });
+    }
+
+    const build = this.addText(`build ${this.options.buildId}`, styles.small, width - 14, height - 18);
+    build.anchor.set(1, 0.5);
   }
 
-  private handleCellInput(cell: Cell, event: FederatedPointerEvent): void {
+  private createButton(
+    label: string,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    onPress: () => void,
+    active = false
+  ): Container {
+    const button = new Container();
+    button.x = x;
+    button.y = y;
+    button.eventMode = 'dynamic';
+    button.cursor = 'pointer';
+
+    const bg = new Graphics();
+    bg.roundRect(0, 0, width, height, 8)
+      .fill(active ? 0xdff3e7 : 0xffffff)
+      .stroke({ width: 1, color: active ? palette.pathGood : palette.line });
+    const text = new Text({ text: label, style: styles.button });
+    text.anchor.set(0.5);
+    text.x = width / 2;
+    text.y = height / 2;
+
+    button.addChild(bg, text);
+    button.on('pointerdown', (event: FederatedPointerEvent) => {
+      this.preventBrowserGesture(event);
+      event.stopPropagation();
+      onPress();
+    });
+    return button;
+  }
+
+  private addText(text: string, style: TextStyle, x: number, y: number): Text {
+    const label = new Text({ text, style });
+    label.x = x;
+    label.y = y;
+    this.hudLayer.addChild(label);
+    return label;
+  }
+
+  private renderOrientationPrompt(): void {
+    const { width, height } = this.app.screen;
+    const bg = new Graphics();
+    bg.rect(0, 0, width, height).fill(palette.background);
+    const boxWidth = Math.min(width - 48, 420);
+    bg.roundRect((width - boxWidth) / 2, height / 2 - 70, boxWidth, 140, 16)
+      .fill(0xffffff)
+      .stroke({ width: 1, color: palette.line });
+    this.modalLayer.addChild(bg);
+
+    const title = new Text({ text: '세로 화면에서 플레이', style: styles.title });
+    title.anchor.set(0.5);
+    title.x = width / 2;
+    title.y = height / 2 - 26;
+    const body = new Text({ text: '이 프로토타입은 드래그 경로를 보기 위해 세로 화면만 사용합니다.', style: styles.body });
+    body.anchor.set(0.5);
+    body.x = width / 2;
+    body.y = height / 2 + 18;
+    this.modalLayer.addChild(title, body);
+  }
+
+  private onPointerDown(event: FederatedPointerEvent): void {
     this.preventBrowserGesture(event);
-    event.stopPropagation();
-    this.pointerIsDown = true;
+    if (this.isLandscapeBlocked) return;
 
-    if (!this.dragging) {
-      this.startPath(cell);
-      return;
-    }
+    const hit = this.hitTest(event.global.x, event.global.y);
+    if (!hit) return;
 
-    this.addCellToPath(cell);
-  }
-
-  private startPath(cell: Cell): void {
-    if (cell.token !== 'B') {
-      this.options.onStatus('먼저 노란 전지를 눌러 시작하세요.', 'bad');
+    if (hit.token !== 'B') {
+      this.flashCell(hit, palette.pathBad);
+      this.setToast('전지에서 시작하세요.', 'bad');
       return;
     }
 
     this.dragging = true;
-    this.path = [cell];
-    this.drawPath(palette.path);
-    this.options.onStatus('좋습니다. 이제 붙어 있는 회색 전선이나 전구를 누르세요.', 'neutral');
+    this.pointerId = event.pointerId;
+    this.path = [hit];
+    this.previewPoint = { x: event.global.x, y: event.global.y };
+      this.setToast('손을 떼지 말고 전구까지', 'neutral');
+    this.drawActivePath(palette.path);
+    this.drawGuide();
   }
 
-  private addCellToPath(cell: Cell): void {
-    if (!this.dragging || this.path.length === 0) return;
+  private onPointerMove(event: FederatedPointerEvent): void {
+    this.preventBrowserGesture(event);
+    if (!this.dragging || this.pointerId !== event.pointerId) return;
+
+    this.previewPoint = { x: event.global.x, y: event.global.y };
+    const hit = this.hitTest(event.global.x, event.global.y);
+    if (hit) this.tryExtend(hit);
+    this.drawActivePath(palette.path);
+  }
+
+  private onPointerUp(event: FederatedPointerEvent): void {
+    this.preventBrowserGesture(event);
+    if (!this.dragging || this.pointerId !== event.pointerId) return;
+    this.finishDrag();
+  }
+
+  private onPointerCancel(event: FederatedPointerEvent): void {
+    this.preventBrowserGesture(event);
+    if (!this.dragging || this.pointerId !== event.pointerId) return;
+    this.failDrag('드래그가 끊겼습니다. 다시 전지에서 시작하세요.');
+  }
+
+  private tryExtend(cell: Cell): void {
+    if (this.path.length === 0) return;
     const last = this.path[this.path.length - 1];
     const existingIndex = this.path.findIndex((pathCell) => this.key(pathCell) === this.key(cell));
 
     if (existingIndex === this.path.length - 1) return;
-
     if (existingIndex === this.path.length - 2) {
       this.path.pop();
-      this.drawPath(palette.path);
-      this.options.onStatus('한 칸 되돌렸습니다. 다른 길을 이어 보세요.', 'neutral');
+      this.setToast('한 칸 되돌렸습니다.', 'neutral');
       return;
     }
-
     if (existingIndex >= 0) {
-      this.options.onStatus('이미 지나간 칸은 다시 지나갈 수 없습니다.', 'bad');
+      this.flashCell(cell, palette.pathBad);
+      this.setToast('지나간 칸은 다시 못 갑니다.', 'bad');
       return;
     }
-
     if (!this.isAdjacent(last, cell)) {
-      this.options.onStatus('붙어 있는 옆 칸만 연결할 수 있습니다.', 'bad');
+      this.setToast('붙어 있는 칸으로만 이어집니다.', 'bad');
       return;
     }
-
-    if (cell.token === 'X') {
-      this.options.onStatus('끊긴 전선은 지나갈 수 없습니다.', 'bad');
+    if (cell.token === 'X' || cell.token === '.') {
+      this.flashCell(cell, palette.pathBad);
+      this.setToast('끊긴 전선은 지나갈 수 없습니다.', 'bad');
       return;
     }
-
     if (cell.token === 'B') {
-      this.options.onStatus('시작한 뒤에는 전선이나 전구로 이어야 합니다.', 'bad');
+      this.flashCell(cell, palette.pathBad);
+      this.setToast('전선이나 전구로 이어야 합니다.', 'bad');
       return;
     }
 
     this.path.push(cell);
-    this.drawPath(palette.path);
+    this.setToast(cell.token === 'L' ? '전구 위에서 손을 떼세요.' : '계속 전구까지 이어 보세요.', 'neutral');
+  }
 
-    if (cell.token === 'L') {
-      this.finishPath();
+  private finishDrag(): void {
+    const result = this.validatePath();
+    if (!result.ok) {
+      this.failDrag(result.reason);
       return;
     }
 
-    this.options.onStatus('계속 이어서 전구까지 연결하세요.', 'neutral');
-  }
-
-  private extendPathAt(x: number, y: number): void {
-    if (!this.dragging || !this.pointerIsDown) return;
-    for (const { cell, graphic } of this.cells.values()) {
-      if (cell.token === 'X' || cell.token === '.') continue;
-      if (x >= graphic.x && x <= graphic.x + graphic.width && y >= graphic.y && y <= graphic.y + graphic.height) {
-        this.addCellToPath(cell);
-        return;
-      }
-    }
-  }
-
-  private endPointer(): void {
-    this.pointerIsDown = false;
-  }
-
-  private finishPath(): void {
-    if (!this.dragging) return;
+    const lamp = this.path[this.path.length - 1];
+    this.poweredLampKeys.add(this.key(lamp));
+    this.completedPaths.push([...this.path]);
+    this.unlockedLevelControls = true;
     this.dragging = false;
-    this.pointerIsDown = false;
-    const result = this.validatePath();
+    this.pointerId = undefined;
+    this.previewPoint = undefined;
+    const complete = this.poweredLampKeys.size >= this.currentBoard.requiredLamps;
+    this.setToast(complete ? '성공. 다른 단계가 열렸습니다.' : '전구가 켜졌습니다. 계속 이어 보세요.', 'good');
+    this.renderScene();
+  }
 
-    if (result.ok) {
-      const lamp = this.path[this.path.length - 1];
-      this.poweredLampKeys.add(this.key(lamp));
-      this.drawPath(palette.pathGood);
-      const powered = this.poweredLampKeys.size;
-      const complete = powered >= this.currentBoard.requiredLamps;
-      this.options.onBoardChange(this.currentBoard, powered);
-      this.options.onStatus(
-        complete ? '성공입니다. 어떤 규칙이 바로 보였는지 확인해 보세요.' : '전구가 켜졌습니다. 다음 전지도 이어 보세요.',
-        'good'
-      );
-      this.renderBoard();
-    } else {
-      this.drawPath(palette.pathBad);
-      this.options.onStatus(result.reason, 'bad');
-    }
+  private failDrag(reason: string): void {
+    this.setToast(reason, 'bad');
+    this.drawActivePath(palette.pathBad, false);
+    this.dragging = false;
+    this.pointerId = undefined;
+    this.previewPoint = undefined;
+    window.clearTimeout(this.resetTimer);
+    this.resetTimer = window.setTimeout(() => {
+      this.path = [];
+      this.setToast('전지에서 전구까지 드래그하세요.', 'neutral');
+      this.renderScene();
+    }, 620);
   }
 
   private validatePath(): { ok: true } | { ok: false; reason: string } {
@@ -380,13 +544,11 @@ export class CircuitSketchPrototype {
     const last = this.path[this.path.length - 1];
 
     if (first.token !== 'B') return { ok: false, reason: '전지에서 시작해야 합니다.' };
-    if (last.token !== 'L') return { ok: false, reason: '전구에서 끝나야 합니다.' };
+    if (last.token !== 'L') return { ok: false, reason: '전구에서 손을 떼세요.' };
     if (this.poweredLampKeys.has(this.key(last))) return { ok: false, reason: '이미 켜진 전구입니다.' };
 
     for (let index = 1; index < this.path.length - 1; index += 1) {
-      const token = this.path[index].token;
-      if (token === 'X') return { ok: false, reason: '끊긴 전선은 지나갈 수 없습니다.' };
-      if (token !== 'W') return { ok: false, reason: '전지와 전구 사이에는 전선만 지나갈 수 있습니다.' };
+      if (this.path[index].token !== 'W') return { ok: false, reason: '중간에는 전선만 지나갑니다.' };
     }
 
     for (let index = 1; index < this.path.length; index += 1) {
@@ -398,21 +560,115 @@ export class CircuitSketchPrototype {
     return { ok: true };
   }
 
-  private drawPath(color: number): void {
-    this.pathLayer.clear();
-    if (this.path.length < 2) return;
-    const points = this.path
-      .map((cell) => this.cells.get(this.key(cell))?.graphic)
-      .filter((graphic): graphic is Container => Boolean(graphic))
-      .map((graphic) => ({
-        x: graphic.x + graphic.width / 2,
-        y: graphic.y + graphic.height / 2
-      }));
+  private drawCompletedPaths(): void {
+    this.completedPathLayer.clear();
+    this.completedPaths.forEach((path) => this.strokePath(this.completedPathLayer, path, palette.pathGood, false));
+  }
 
+  private drawActivePath(color: number, includePreview = true): void {
+    this.pathLayer.clear();
+    this.strokePath(this.pathLayer, this.path, color, includePreview);
+  }
+
+  private strokePath(layer: Graphics, cells: Cell[], color: number, includePreview: boolean): void {
+    const points = cells
+      .map((cell) => this.cellCenter(cell))
+      .filter((point): point is { x: number; y: number } => Boolean(point));
+
+    if (includePreview && this.previewPoint && points.length > 0) points.push(this.previewPoint);
+    if (points.length === 0) return;
+
+    const start = points[0];
+    layer.circle(start.x, start.y, 15).stroke({ width: 4, color, alpha: 0.88 });
     if (points.length < 2) return;
-    this.pathLayer.moveTo(points[0].x, points[0].y);
-    points.slice(1).forEach((point) => this.pathLayer.lineTo(point.x, point.y));
-    this.pathLayer.stroke({ width: 9, color, alpha: 0.86, cap: 'round', join: 'round' });
+
+    layer.moveTo(points[0].x, points[0].y);
+    points.slice(1).forEach((point) => layer.lineTo(point.x, point.y));
+    layer.stroke({ width: 10, color, alpha: 0.88, cap: 'round', join: 'round' });
+  }
+
+  private drawGuide(): void {
+    this.guideLayer.clear();
+    if (this.dragging || this.poweredLampKeys.size > 0) return;
+    const starts = [...this.cells.values()].filter(({ cell }) => cell.token === 'B');
+    const lamps = [...this.cells.values()].filter(({ cell }) => cell.token === 'L');
+    const start = starts[0];
+    const lamp = lamps[0];
+    if (!start || !lamp) return;
+
+    const pulse = 0.5 + Math.sin(this.guideClock) * 0.5;
+    const startCenter = this.centerOfView(start);
+    const lampCenter = this.centerOfView(lamp);
+    this.guideLayer.circle(startCenter.x, startCenter.y, start.size * (0.45 + pulse * 0.08)).stroke({
+      width: 4,
+      color: palette.guide,
+      alpha: 0.75
+    });
+    this.guideLayer.circle(lampCenter.x, lampCenter.y, lamp.size * 0.38).stroke({
+      width: 4,
+      color: palette.lampOn,
+      alpha: 0.75
+    });
+    this.guideLayer.moveTo(startCenter.x, startCenter.y).lineTo(lampCenter.x, lampCenter.y).stroke({
+      width: 5,
+      color: palette.guide,
+      alpha: 0.2,
+      cap: 'round'
+    });
+    const t = (Math.sin(this.guideClock * 0.75) + 1) / 2;
+    this.guideLayer.circle(startCenter.x + (lampCenter.x - startCenter.x) * t, startCenter.y + (lampCenter.y - startCenter.y) * t, 9)
+      .fill(0xffffff)
+      .stroke({ width: 3, color: palette.guide, alpha: 0.9 });
+  }
+
+  private flashCell(cell: Cell, color: number): void {
+    const view = this.cells.get(this.key(cell));
+    if (!view) return;
+    this.feedbackLayer.clear();
+    this.feedbackLayer
+      .roundRect(view.x - 5, view.y - 5, view.size + 10, view.size + 10, 15)
+      .stroke({ width: 4, color, alpha: 0.85 });
+    window.clearTimeout(this.resetTimer);
+    this.resetTimer = window.setTimeout(() => this.feedbackLayer.clear(), 260);
+  }
+
+  private setToast(message: string, tone: Tone): void {
+    this.toast = message;
+    this.tone = tone;
+    this.renderHud();
+  }
+
+  private hitTest(x: number, y: number): Cell | undefined {
+    for (const view of this.cells.values()) {
+      const pad = Math.min(18, view.size * 0.18);
+      if (x >= view.x - pad && x <= view.x + view.size + pad && y >= view.y - pad && y <= view.y + view.size + pad) {
+        return view.cell;
+      }
+    }
+    return undefined;
+  }
+
+  private cellCenter(cell: Cell): { x: number; y: number } | undefined {
+    const view = this.cells.get(this.key(cell));
+    if (!view) return undefined;
+    return this.centerOfView(view);
+  }
+
+  private centerOfView(view: CellView): { x: number; y: number } {
+    return { x: view.x + view.size / 2, y: view.y + view.size / 2 };
+  }
+
+  private animateGuide = (): void => {
+    if (this.isLandscapeBlocked) return;
+    this.guideClock += 0.05;
+    this.drawGuide();
+  };
+
+  private labelFor(token: Token): string {
+    if (token === 'B') return '전';
+    if (token === 'W') return '선';
+    if (token === 'L') return '등';
+    return '';
   }
 
   private isAdjacent(a: Cell, b: Cell): boolean {
@@ -425,8 +681,6 @@ export class CircuitSketchPrototype {
 
   private preventBrowserGesture(event: FederatedPointerEvent): void {
     const nativeEvent = event.nativeEvent;
-    if (nativeEvent && 'preventDefault' in nativeEvent) {
-      nativeEvent.preventDefault();
-    }
+    if (nativeEvent && 'preventDefault' in nativeEvent) nativeEvent.preventDefault();
   }
 }
