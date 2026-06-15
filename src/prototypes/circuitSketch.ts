@@ -96,6 +96,7 @@ export class CircuitSketchPrototype {
   private path: Cell[] = [];
   private poweredLampKeys = new Set<string>();
   private dragging = false;
+  private pointerIsDown = false;
   private resizeObserver?: ResizeObserver;
 
   constructor(options: CircuitSketchOptions) {
@@ -117,8 +118,9 @@ export class CircuitSketchPrototype {
     this.app.stage.eventMode = 'static';
     this.app.stage.hitArea = this.app.screen;
     this.app.stage.on('pointermove', (event) => this.extendPathAt(event.global.x, event.global.y));
-    this.app.stage.on('pointerup', () => this.finishPath());
-    this.app.stage.on('pointerupoutside', () => this.finishPath());
+    this.app.stage.on('pointerup', () => this.endPointer());
+    this.app.stage.on('pointerupoutside', () => this.endPointer());
+    this.app.stage.on('pointercancel', () => this.endPointer());
 
     this.resizeObserver = new ResizeObserver(() => this.renderBoard());
     this.resizeObserver.observe(this.options.container);
@@ -138,7 +140,9 @@ export class CircuitSketchPrototype {
     this.boardIndex = index;
     this.path = [];
     this.poweredLampKeys = new Set();
-    this.options.onStatus('노란 전지에서 시작해 회색 전선을 지나 전구에서 손을 떼세요.', 'neutral');
+    this.dragging = false;
+    this.pointerIsDown = false;
+    this.options.onStatus('노란 전지를 탭한 뒤, 옆 칸 전선을 순서대로 탭하세요.', 'neutral');
     this.options.onBoardChange(this.currentBoard, 0);
     this.renderBoard();
   }
@@ -214,13 +218,9 @@ export class CircuitSketchPrototype {
       container.addChild(label);
     }
 
-    container.on('pointerdown', (event) => this.startPath(cell, event));
-    container.on('pointerover', () => this.extendPath(cell));
-    container.on('pointertap', (event) => {
-      if (!this.dragging) {
-        this.startPath(cell, event);
-        this.finishPath();
-      }
+    container.on('pointerdown', (event) => this.handleCellInput(cell, event));
+    container.on('pointerover', () => {
+      if (this.pointerIsDown) this.addCellToPath(cell);
     });
 
     return container;
@@ -265,43 +265,95 @@ export class CircuitSketchPrototype {
     return '';
   }
 
-  private startPath(cell: Cell, event: FederatedPointerEvent): void {
+  private handleCellInput(cell: Cell, event: FederatedPointerEvent): void {
+    this.preventBrowserGesture(event);
     event.stopPropagation();
+    this.pointerIsDown = true;
+
+    if (!this.dragging) {
+      this.startPath(cell);
+      return;
+    }
+
+    this.addCellToPath(cell);
+  }
+
+  private startPath(cell: Cell): void {
+    if (cell.token !== 'B') {
+      this.options.onStatus('먼저 노란 전지를 눌러 시작하세요.', 'bad');
+      return;
+    }
+
     this.dragging = true;
     this.path = [cell];
     this.drawPath(palette.path);
+    this.options.onStatus('좋습니다. 이제 붙어 있는 회색 전선이나 전구를 누르세요.', 'neutral');
   }
 
-  private extendPath(cell: Cell): void {
+  private addCellToPath(cell: Cell): void {
     if (!this.dragging || this.path.length === 0) return;
     const last = this.path[this.path.length - 1];
     const existingIndex = this.path.findIndex((pathCell) => this.key(pathCell) === this.key(cell));
 
+    if (existingIndex === this.path.length - 1) return;
+
     if (existingIndex === this.path.length - 2) {
       this.path.pop();
       this.drawPath(palette.path);
+      this.options.onStatus('한 칸 되돌렸습니다. 다른 길을 이어 보세요.', 'neutral');
       return;
     }
 
-    if (existingIndex >= 0 || !this.isAdjacent(last, cell)) return;
+    if (existingIndex >= 0) {
+      this.options.onStatus('이미 지나간 칸은 다시 지나갈 수 없습니다.', 'bad');
+      return;
+    }
+
+    if (!this.isAdjacent(last, cell)) {
+      this.options.onStatus('붙어 있는 옆 칸만 연결할 수 있습니다.', 'bad');
+      return;
+    }
+
+    if (cell.token === 'X') {
+      this.options.onStatus('끊긴 전선은 지나갈 수 없습니다.', 'bad');
+      return;
+    }
+
+    if (cell.token === 'B') {
+      this.options.onStatus('시작한 뒤에는 전선이나 전구로 이어야 합니다.', 'bad');
+      return;
+    }
+
     this.path.push(cell);
     this.drawPath(palette.path);
+
+    if (cell.token === 'L') {
+      this.finishPath();
+      return;
+    }
+
+    this.options.onStatus('계속 이어서 전구까지 연결하세요.', 'neutral');
   }
 
   private extendPathAt(x: number, y: number): void {
-    if (!this.dragging) return;
+    if (!this.dragging || !this.pointerIsDown) return;
     for (const { cell, graphic } of this.cells.values()) {
       if (cell.token === 'X' || cell.token === '.') continue;
       if (x >= graphic.x && x <= graphic.x + graphic.width && y >= graphic.y && y <= graphic.y + graphic.height) {
-        this.extendPath(cell);
+        this.addCellToPath(cell);
         return;
       }
     }
   }
 
+  private endPointer(): void {
+    this.pointerIsDown = false;
+  }
+
   private finishPath(): void {
     if (!this.dragging) return;
     this.dragging = false;
+    this.pointerIsDown = false;
     const result = this.validatePath();
 
     if (result.ok) {
@@ -369,5 +421,12 @@ export class CircuitSketchPrototype {
 
   private key(cell: Pick<Cell, 'row' | 'col'>): string {
     return `${cell.row}:${cell.col}`;
+  }
+
+  private preventBrowserGesture(event: FederatedPointerEvent): void {
+    const nativeEvent = event.nativeEvent;
+    if (nativeEvent && 'preventDefault' in nativeEvent) {
+      nativeEvent.preventDefault();
+    }
   }
 }

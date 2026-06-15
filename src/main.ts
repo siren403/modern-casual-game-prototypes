@@ -76,12 +76,12 @@ function renderCircuitSketch(): void {
         <p>${prototype.summary}</p>
         <div class="quick-goal">
           <strong>목표</strong>
-          <span>전지에서 시작해서 전선을 따라 전구까지 이어 주세요.</span>
+          <span>전지, 전선, 전구를 차례대로 눌러 이어 주세요.</span>
         </div>
         <div class="instruction-list" aria-label="조작 방법">
-          <div><strong>1</strong><span>노란 전지를 누른 채 시작</span></div>
-          <div><strong>2</strong><span>회색 전선을 따라 손가락 이동</span></div>
-          <div><strong>3</strong><span>전구에서 손을 떼면 성공</span></div>
+          <div><strong>1</strong><span>노란 전지를 탭해서 시작</span></div>
+          <div><strong>2</strong><span>옆 칸의 회색 전선을 순서대로 탭</span></div>
+          <div><strong>3</strong><span>전구를 탭하면 성공</span></div>
         </div>
         <div id="board-list" class="board-list"></div>
         <div id="status" class="status">프로토타입을 불러오는 중...</div>
