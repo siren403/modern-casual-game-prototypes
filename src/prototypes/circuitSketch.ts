@@ -37,6 +37,19 @@ type CircuitSketchOptions = {
   onExit: () => void;
 };
 
+declare global {
+  interface Window {
+    __circuitSketchState?: {
+      boardIndex: number;
+      powered: number;
+      dragging: boolean;
+      pathLength: number;
+      toast: string;
+      buildId: string;
+    };
+  }
+}
+
 const boards: Board[] = [
   {
     id: 'linear',
@@ -119,12 +132,19 @@ export class CircuitSketchPrototype {
   private dragging = false;
   private pointerId: number | undefined;
   private previewPoint: { x: number; y: number } | undefined;
+  private lastPointerPoint: { x: number; y: number } | undefined;
   private toast = '전지에서 전구까지 드래그하세요.';
   private tone: Tone = 'neutral';
   private unlockedLevelControls = false;
   private guideClock = 0;
   private resizeObserver?: ResizeObserver;
   private resetTimer?: ReturnType<typeof window.setTimeout>;
+  private readonly domGuards: Array<{
+    target: EventTarget;
+    type: string;
+    listener: EventListener;
+    options?: AddEventListenerOptions;
+  }> = [];
 
   constructor(options: CircuitSketchOptions) {
     this.options = options;
@@ -145,7 +165,9 @@ export class CircuitSketchPrototype {
     this.app.canvas.style.height = '100%';
     this.app.canvas.style.touchAction = 'none';
     this.app.canvas.style.userSelect = 'none';
+    this.app.canvas.draggable = false;
     this.options.container.replaceChildren(this.app.canvas);
+    this.installDomGuards();
 
     this.root.addChild(
       this.boardLayer,
@@ -173,6 +195,7 @@ export class CircuitSketchPrototype {
 
   destroy(): void {
     window.clearTimeout(this.resetTimer);
+    this.removeDomGuards();
     this.resizeObserver?.disconnect();
     this.app.ticker.remove(this.animateGuide);
     this.app.destroy(true, { children: true });
@@ -186,6 +209,8 @@ export class CircuitSketchPrototype {
     this.dragging = false;
     this.pointerId = undefined;
     this.previewPoint = undefined;
+    this.lastPointerPoint = undefined;
+    this.lastPointerPoint = undefined;
     this.toast = '전지에서 전구까지 드래그하세요.';
     this.tone = 'neutral';
     this.renderScene();
@@ -221,6 +246,7 @@ export class CircuitSketchPrototype {
     this.drawActivePath(palette.path);
     this.drawGuide();
     this.renderHud();
+    this.publishDebugState();
   }
 
   private renderBoard(): void {
@@ -443,45 +469,75 @@ export class CircuitSketchPrototype {
     this.pointerId = event.pointerId;
     this.path = [hit];
     this.previewPoint = { x: event.global.x, y: event.global.y };
-      this.setToast('손을 떼지 말고 전구까지', 'neutral');
+    this.lastPointerPoint = this.previewPoint;
+    this.capturePointer(event.pointerId);
+    this.setToast('손을 떼지 말고 전구까지', 'neutral');
     this.drawActivePath(palette.path);
     this.drawGuide();
+    this.publishDebugState();
   }
 
   private onPointerMove(event: FederatedPointerEvent): void {
     this.preventBrowserGesture(event);
     if (!this.dragging || this.pointerId !== event.pointerId) return;
 
-    this.previewPoint = { x: event.global.x, y: event.global.y };
-    const hit = this.hitTest(event.global.x, event.global.y);
-    if (hit) this.tryExtend(hit);
+    const nextPoint = { x: event.global.x, y: event.global.y };
+    this.previewPoint = nextPoint;
+    this.extendAlongPointerSegment(this.lastPointerPoint ?? nextPoint, nextPoint);
+    this.lastPointerPoint = nextPoint;
     this.drawActivePath(palette.path);
+    this.publishDebugState();
   }
 
   private onPointerUp(event: FederatedPointerEvent): void {
     this.preventBrowserGesture(event);
     if (!this.dragging || this.pointerId !== event.pointerId) return;
+    this.releasePointer(event.pointerId);
     this.finishDrag();
   }
 
   private onPointerCancel(event: FederatedPointerEvent): void {
     this.preventBrowserGesture(event);
     if (!this.dragging || this.pointerId !== event.pointerId) return;
+    this.releasePointer(event.pointerId);
     this.failDrag('드래그가 끊겼습니다. 다시 전지에서 시작하세요.');
   }
 
-  private tryExtend(cell: Cell): void {
+  private extendAlongPointerSegment(from: { x: number; y: number }, to: { x: number; y: number }): void {
+    const distance = Math.hypot(to.x - from.x, to.y - from.y);
+    const cellSize = this.path[0] ? this.cells.get(this.key(this.path[0]))?.size : undefined;
+    const step = Math.max(10, Math.min(26, (cellSize ?? 70) * 0.28));
+    const samples = Math.max(1, Math.ceil(distance / step));
+    let lastKey = '';
+
+    for (let index = 1; index <= samples; index += 1) {
+      const t = index / samples;
+      const point = {
+        x: from.x + (to.x - from.x) * t,
+        y: from.y + (to.y - from.y) * t
+      };
+      const hit = this.hitTest(point.x, point.y);
+      if (!hit) continue;
+      const key = this.key(hit);
+      if (key === lastKey) continue;
+      lastKey = key;
+      this.tryExtend(hit, index === samples);
+    }
+  }
+
+  private tryExtend(cell: Cell, allowUndo = true): void {
     if (this.path.length === 0) return;
     const last = this.path[this.path.length - 1];
     const existingIndex = this.path.findIndex((pathCell) => this.key(pathCell) === this.key(cell));
 
     if (existingIndex === this.path.length - 1) return;
-    if (existingIndex === this.path.length - 2) {
+    if (allowUndo && existingIndex === this.path.length - 2 && this.path.length > 1) {
       this.path.pop();
       this.setToast('한 칸 되돌렸습니다.', 'neutral');
       return;
     }
     if (existingIndex >= 0) {
+      if (!allowUndo) return;
       this.flashCell(cell, palette.pathBad);
       this.setToast('지나간 칸은 다시 못 갑니다.', 'bad');
       return;
@@ -503,6 +559,7 @@ export class CircuitSketchPrototype {
 
     this.path.push(cell);
     this.setToast(cell.token === 'L' ? '전구 위에서 손을 떼세요.' : '계속 전구까지 이어 보세요.', 'neutral');
+    this.publishDebugState();
   }
 
   private finishDrag(): void {
@@ -519,6 +576,7 @@ export class CircuitSketchPrototype {
     this.dragging = false;
     this.pointerId = undefined;
     this.previewPoint = undefined;
+    this.lastPointerPoint = undefined;
     const complete = this.poweredLampKeys.size >= this.currentBoard.requiredLamps;
     this.setToast(complete ? '성공. 다른 단계가 열렸습니다.' : '전구가 켜졌습니다. 계속 이어 보세요.', 'good');
     this.renderScene();
@@ -636,6 +694,7 @@ export class CircuitSketchPrototype {
     this.toast = message;
     this.tone = tone;
     this.renderHud();
+    this.publishDebugState();
   }
 
   private hitTest(x: number, y: number): Cell | undefined {
@@ -682,5 +741,68 @@ export class CircuitSketchPrototype {
   private preventBrowserGesture(event: FederatedPointerEvent): void {
     const nativeEvent = event.nativeEvent;
     if (nativeEvent && 'preventDefault' in nativeEvent) nativeEvent.preventDefault();
+  }
+
+  private publishDebugState(): void {
+    window.__circuitSketchState = {
+      boardIndex: this.boardIndex,
+      powered: this.poweredLampKeys.size,
+      dragging: this.dragging,
+      pathLength: this.path.length,
+      toast: this.toast,
+      buildId: this.options.buildId
+    };
+  }
+
+  private installDomGuards(): void {
+    const guardedTargets = [this.options.container, this.app.canvas];
+    const passiveFalse: AddEventListenerOptions = { passive: false };
+    const capturePassiveFalse: AddEventListenerOptions = { capture: true, passive: false };
+
+    guardedTargets.forEach((target) => {
+      this.addDomGuard(target, 'contextmenu', this.suppressBrowserEvent, capturePassiveFalse);
+      this.addDomGuard(target, 'dragstart', this.suppressBrowserEvent, capturePassiveFalse);
+      this.addDomGuard(target, 'selectstart', this.suppressBrowserEvent, capturePassiveFalse);
+      this.addDomGuard(target, 'touchstart', this.suppressBrowserEvent, passiveFalse);
+      this.addDomGuard(target, 'touchmove', this.suppressBrowserEvent, passiveFalse);
+      this.addDomGuard(target, 'gesturestart', this.suppressBrowserEvent, passiveFalse);
+    });
+  }
+
+  private removeDomGuards(): void {
+    this.domGuards.forEach(({ target, type, listener, options }) => {
+      target.removeEventListener(type, listener, options);
+    });
+    this.domGuards.length = 0;
+  }
+
+  private addDomGuard(
+    target: EventTarget,
+    type: string,
+    listener: EventListener,
+    options?: AddEventListenerOptions
+  ): void {
+    target.addEventListener(type, listener, options);
+    this.domGuards.push({ target, type, listener, options });
+  }
+
+  private readonly suppressBrowserEvent: EventListener = (event) => {
+    event.preventDefault();
+  };
+
+  private capturePointer(pointerId: number): void {
+    try {
+      if (this.app.canvas.setPointerCapture) this.app.canvas.setPointerCapture(pointerId);
+    } catch {
+      // Some WebKit builds throw if capture is attempted after implicit release.
+    }
+  }
+
+  private releasePointer(pointerId: number): void {
+    try {
+      if (this.app.canvas.hasPointerCapture?.(pointerId)) this.app.canvas.releasePointerCapture(pointerId);
+    } catch {
+      // Pointer capture can already be released by the browser on cancel.
+    }
   }
 }

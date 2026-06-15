@@ -47,6 +47,19 @@ body.is-game-route {
   inset: 0;
   height: 100%;
   width: 100%;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+html.is-game-route *,
+body.is-game-route * {
+  -webkit-touch-callout: none !important;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-drag: none;
+  -webkit-user-select: none !important;
+  user-select: none !important;
 }
 
 .app-game .shell {
@@ -68,6 +81,7 @@ body.is-game-route {
   background: #f4f7f9;
   touch-action: none;
   -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
   -webkit-user-select: none;
   user-select: none;
   overscroll-behavior: none;
@@ -79,6 +93,7 @@ body.is-game-route {
   overflow: hidden;
   touch-action: none;
   -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
   -webkit-user-select: none;
   user-select: none;
 }
@@ -89,6 +104,8 @@ body.is-game-route {
   height: 100%;
   touch-action: none;
   -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-drag: none;
   -webkit-user-select: none;
   user-select: none;
 }

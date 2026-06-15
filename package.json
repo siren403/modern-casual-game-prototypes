@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc && vite build",
-    "preview": "vite preview --host 0.0.0.0"
+    "preview": "vite preview --host 0.0.0.0",
+    "verify:pixi-shell": "node scripts/verify-pixi-shell.cjs"
   },
   "dependencies": {
     "pixi.js": "^8.8.1"
