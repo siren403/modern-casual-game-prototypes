@@ -32,15 +32,15 @@ type CircuitSketchOptions = {
 const boards: Board[] = [
   {
     id: 'linear',
-    title: 'Board 1',
-    goal: 'Power the lamp.',
+    title: '1단계',
+    goal: '전구 1개 켜기',
     grid: [['B', 'W', 'L']],
     requiredLamps: 1
   },
   {
     id: 'detour',
-    title: 'Board 2',
-    goal: 'Route around the broken wires.',
+    title: '2단계',
+    goal: '끊긴 전선을 피해 연결',
     grid: [
       ['B', 'W', 'W'],
       ['X', 'X', 'W'],
@@ -50,8 +50,8 @@ const boards: Board[] = [
   },
   {
     id: 'two-lamps',
-    title: 'Board 3',
-    goal: 'Power both lamps.',
+    title: '3단계',
+    goal: '전구 2개 모두 켜기',
     grid: [
       ['B', 'W', 'L'],
       ['X', 'X', 'X'],
@@ -80,8 +80,8 @@ const palette = {
 };
 
 const labelStyle = new TextStyle({
-  fontFamily: 'Inter, system-ui, sans-serif',
-  fontSize: 18,
+  fontFamily: 'Inter, system-ui, Apple SD Gothic Neo, Malgun Gothic, sans-serif',
+  fontSize: 17,
   fontWeight: '700',
   fill: palette.text
 });
@@ -116,6 +116,7 @@ export class CircuitSketchPrototype {
     this.root.addChild(this.pathLayer);
     this.app.stage.eventMode = 'static';
     this.app.stage.hitArea = this.app.screen;
+    this.app.stage.on('pointermove', (event) => this.extendPathAt(event.global.x, event.global.y));
     this.app.stage.on('pointerup', () => this.finishPath());
     this.app.stage.on('pointerupoutside', () => this.finishPath());
 
@@ -137,7 +138,7 @@ export class CircuitSketchPrototype {
     this.boardIndex = index;
     this.path = [];
     this.poweredLampKeys = new Set();
-    this.options.onStatus('Drag from a battery through wires and end at a lamp.', 'neutral');
+    this.options.onStatus('노란 전지에서 시작해 회색 전선을 지나 전구에서 손을 떼세요.', 'neutral');
     this.options.onBoardChange(this.currentBoard, 0);
     this.renderBoard();
   }
@@ -258,9 +259,9 @@ export class CircuitSketchPrototype {
   }
 
   private labelFor(token: Token): string {
-    if (token === 'B') return 'B';
-    if (token === 'W') return 'W';
-    if (token === 'L') return 'L';
+    if (token === 'B') return '전';
+    if (token === 'W') return '선';
+    if (token === 'L') return '등';
     return '';
   }
 
@@ -287,6 +288,17 @@ export class CircuitSketchPrototype {
     this.drawPath(palette.path);
   }
 
+  private extendPathAt(x: number, y: number): void {
+    if (!this.dragging) return;
+    for (const { cell, graphic } of this.cells.values()) {
+      if (cell.token === 'X' || cell.token === '.') continue;
+      if (x >= graphic.x && x <= graphic.x + graphic.width && y >= graphic.y && y <= graphic.y + graphic.height) {
+        this.extendPath(cell);
+        return;
+      }
+    }
+  }
+
   private finishPath(): void {
     if (!this.dragging) return;
     this.dragging = false;
@@ -300,7 +312,7 @@ export class CircuitSketchPrototype {
       const complete = powered >= this.currentBoard.requiredLamps;
       this.options.onBoardChange(this.currentBoard, powered);
       this.options.onStatus(
-        complete ? 'All lamps powered. Ask the tester what felt clear or confusing.' : 'Lamp powered. Find the next battery path.',
+        complete ? '성공입니다. 어떤 규칙이 바로 보였는지 확인해 보세요.' : '전구가 켜졌습니다. 다음 전지도 이어 보세요.',
         'good'
       );
       this.renderBoard();
@@ -311,23 +323,23 @@ export class CircuitSketchPrototype {
   }
 
   private validatePath(): { ok: true } | { ok: false; reason: string } {
-    if (this.path.length === 0) return { ok: false, reason: 'Start from a battery.' };
+    if (this.path.length === 0) return { ok: false, reason: '전지에서 시작해야 합니다.' };
     const first = this.path[0];
     const last = this.path[this.path.length - 1];
 
-    if (first.token !== 'B') return { ok: false, reason: 'Start from a battery.' };
-    if (last.token !== 'L') return { ok: false, reason: 'End at a lamp.' };
-    if (this.poweredLampKeys.has(this.key(last))) return { ok: false, reason: 'This lamp is already powered.' };
+    if (first.token !== 'B') return { ok: false, reason: '전지에서 시작해야 합니다.' };
+    if (last.token !== 'L') return { ok: false, reason: '전구에서 끝나야 합니다.' };
+    if (this.poweredLampKeys.has(this.key(last))) return { ok: false, reason: '이미 켜진 전구입니다.' };
 
     for (let index = 1; index < this.path.length - 1; index += 1) {
       const token = this.path[index].token;
-      if (token === 'X') return { ok: false, reason: 'Broken wires cannot conduct.' };
-      if (token !== 'W') return { ok: false, reason: 'Use wires between the battery and lamp.' };
+      if (token === 'X') return { ok: false, reason: '끊긴 전선은 지나갈 수 없습니다.' };
+      if (token !== 'W') return { ok: false, reason: '전지와 전구 사이에는 전선만 지나갈 수 있습니다.' };
     }
 
     for (let index = 1; index < this.path.length; index += 1) {
       if (!this.isAdjacent(this.path[index - 1], this.path[index])) {
-        return { ok: false, reason: 'This path is not connected.' };
+        return { ok: false, reason: '이어진 칸끼리만 연결할 수 있습니다.' };
       }
     }
 

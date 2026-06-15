@@ -15,11 +15,11 @@ function renderShell(content: string): HTMLElement {
     <div class="shell">
       <header class="topbar">
         <div class="brand">
-          <div class="brand-title">Modern Casual Game Prototypes</div>
-          <div class="brand-subtitle">Reference-derived microtests, labeled separately from shipped games</div>
+          <div class="brand-title">캐주얼 게임 프로토타입</div>
+          <div class="brand-subtitle">레퍼런스 분석에서 뽑은 짧은 플레이 테스트</div>
         </div>
         <nav class="topbar-actions">
-          <a class="link-button" href="./">Index</a>
+          <a class="link-button" href="./">목록</a>
           <a class="link-button" href="https://github.com/" target="_blank" rel="noreferrer">GitHub</a>
         </nav>
       </header>
@@ -33,9 +33,9 @@ function renderHome(): void {
   renderShell(`
     <main class="home">
       <section class="home-header">
-        <h1>Prototype Index</h1>
+        <h1>플레이 테스트 목록</h1>
         <p>
-          This page hosts small playable probes derived from reference-game analysis. Each item is labeled as a prototype or concept test, not as an actual reference game.
+          작은 규칙 하나가 실제로 이해되고 재미로 이어지는지 확인하는 공간입니다. 각 항목은 출시 게임이 아니라 검증용 프로토타입입니다.
         </p>
       </section>
       <section class="prototype-grid">
@@ -74,29 +74,35 @@ function renderCircuitSketch(): void {
         </div>
         <h1>${prototype.title}</h1>
         <p>${prototype.summary}</p>
-        <div class="instruction">
-          Start at a battery, trace through connected wires, and end at a lamp to power it.
+        <div class="quick-goal">
+          <strong>목표</strong>
+          <span>전지에서 시작해서 전선을 따라 전구까지 이어 주세요.</span>
+        </div>
+        <div class="instruction-list" aria-label="조작 방법">
+          <div><strong>1</strong><span>노란 전지를 누른 채 시작</span></div>
+          <div><strong>2</strong><span>회색 전선을 따라 손가락 이동</span></div>
+          <div><strong>3</strong><span>전구에서 손을 떼면 성공</span></div>
         </div>
         <div id="board-list" class="board-list"></div>
-        <div id="status" class="status">Loading prototype...</div>
-        <section class="questions">
-          <h2>Ask testers</h2>
+        <div id="status" class="status">프로토타입을 불러오는 중...</div>
+        <details class="questions">
+          <summary>테스트할 때 볼 질문</summary>
           <ol>
-            <li>Where did you think you should start?</li>
-            <li>What told you where to stop?</li>
-            <li>What made a path invalid?</li>
-            <li>Did this feel like a circuit or just a maze?</li>
-            <li>Would later boards feel interesting or all the same?</li>
+            <li>어디서 시작해야 한다고 느꼈나?</li>
+            <li>어디서 끝내야 한다고 느꼈나?</li>
+            <li>실패한 이유를 바로 이해했나?</li>
+            <li>미로가 아니라 회로처럼 느껴졌나?</li>
+            <li>스테이지가 늘어나도 새로울 것 같나?</li>
           </ol>
-        </section>
+        </details>
       </aside>
       <section class="stage-wrap">
         <div id="stage" class="stage"></div>
         <div class="legend">
-          <span class="legend-item"><span class="legend-swatch battery"></span> Battery</span>
-          <span class="legend-item"><span class="legend-swatch wire"></span> Wire</span>
-          <span class="legend-item"><span class="legend-swatch lamp"></span> Lamp</span>
-          <span class="legend-item"><span class="legend-swatch broken"></span> Broken wire</span>
+          <span class="legend-item"><span class="legend-swatch battery"></span> 전지</span>
+          <span class="legend-item"><span class="legend-swatch wire"></span> 전선</span>
+          <span class="legend-item"><span class="legend-swatch lamp"></span> 전구</span>
+          <span class="legend-item"><span class="legend-swatch broken"></span> 끊긴 전선</span>
         </div>
       </section>
     </main>
@@ -119,7 +125,7 @@ function renderCircuitSketch(): void {
     onBoardChange: (board, powered) => {
       const activeButton = boardList.querySelector<HTMLButtonElement>(`[data-board="${board.id}"]`);
       if (activeButton) {
-        activeButton.querySelector('span')!.textContent = `${powered}/${board.requiredLamps} lamps`;
+        activeButton.querySelector('.board-progress')!.textContent = `${powered}/${board.requiredLamps} 전구`;
       }
     }
   });
@@ -132,8 +138,11 @@ function renderCircuitSketch(): void {
         .map(
           (board, index) => `
             <button class="board-button ${index === 0 ? 'active' : ''}" data-board="${board.id}" data-index="${index}">
-              <strong>${board.title}</strong>
-              <span>0/${board.requiredLamps} lamps</span>
+              <span class="board-copy">
+                <strong>${board.title}</strong>
+                <small>${board.goal}</small>
+              </span>
+              <span class="board-progress">0/${board.requiredLamps} 전구</span>
             </button>
           `
         )
