@@ -7,7 +7,7 @@ import {
   TextStyle
 } from 'pixi.js';
 
-type Token = 'B' | 'W' | 'L' | 'X' | '.';
+type Token = 'B' | 'W' | 'L' | 'T' | 'X' | '.';
 type Tone = 'neutral' | 'good' | 'bad';
 
 type Cell = {
@@ -46,6 +46,7 @@ declare global {
       pathLength: number;
       toast: string;
       buildId: string;
+      cells: Array<{ row: number; col: number; token: Token; x: number; y: number }>;
     };
   }
 }
@@ -54,29 +55,29 @@ const boards: Board[] = [
   {
     id: 'linear',
     title: '1단계',
-    goal: '전구 1개 켜기',
-    grid: [['B', 'W', 'L']],
+    goal: '+에서 시작해 전구를 지나 -단자까지',
+    grid: [['B', 'W', 'L', 'W', 'T']],
     requiredLamps: 1
   },
   {
     id: 'detour',
     title: '2단계',
-    goal: '끊긴 전선을 피해 연결',
+    goal: '끊긴 전선을 피해 닫힌 회로 만들기',
     grid: [
       ['B', 'W', 'W'],
       ['X', 'X', 'W'],
-      ['L', 'W', 'W']
+      ['T', 'W', 'L']
     ],
     requiredLamps: 1
   },
   {
     id: 'two-lamps',
     title: '3단계',
-    goal: '전구 2개 모두 켜기',
+    goal: '전구 2개를 지나 -단자까지',
     grid: [
-      ['B', 'W', 'L'],
-      ['X', 'X', 'X'],
-      ['B', 'W', 'L']
+      ['B', 'W', 'L', 'W', 'W'],
+      ['X', 'X', 'X', 'X', 'W'],
+      ['T', 'W', 'L', 'W', 'W']
     ],
     requiredLamps: 2
   }
@@ -95,6 +96,8 @@ const palette = {
   lamp: 0xf7f0bf,
   lampOn: 0xffd65a,
   lampStroke: 0x957415,
+  terminal: 0xe8eef7,
+  terminalStroke: 0x43536a,
   broken: 0x2f3540,
   path: 0x2670d9,
   pathGood: 0x2f9e68,
@@ -133,7 +136,7 @@ export class CircuitSketchPrototype {
   private pointerId: number | undefined;
   private previewPoint: { x: number; y: number } | undefined;
   private lastPointerPoint: { x: number; y: number } | undefined;
-  private toast = '전지에서 전구까지 드래그하세요.';
+  private toast = '+에서 전구를 지나 -까지 드래그하세요.';
   private tone: Tone = 'neutral';
   private unlockedLevelControls = false;
   private guideClock = 0;
@@ -210,8 +213,7 @@ export class CircuitSketchPrototype {
     this.pointerId = undefined;
     this.previewPoint = undefined;
     this.lastPointerPoint = undefined;
-    this.lastPointerPoint = undefined;
-    this.toast = '전지에서 전구까지 드래그하세요.';
+    this.toast = '+에서 전구를 지나 -까지 드래그하세요.';
     this.tone = 'neutral';
     this.renderScene();
   }
@@ -339,6 +341,18 @@ export class CircuitSketchPrototype {
       });
       if (powered) shape.circle(cx, cy, size * 0.38).stroke({ width: 4, color: 0xffe890, alpha: 0.88 });
     }
+
+    if (token === 'T') {
+      shape.circle(cx, cy, size * 0.27).fill(palette.terminal).stroke({
+        width: 3,
+        color: palette.terminalStroke
+      });
+      shape.moveTo(cx - size * 0.16, cy).lineTo(cx + size * 0.16, cy).stroke({
+        width: 5,
+        color: palette.terminalStroke,
+        cap: 'round'
+      });
+    }
   }
 
   private renderHud(): void {
@@ -461,7 +475,7 @@ export class CircuitSketchPrototype {
 
     if (hit.token !== 'B') {
       this.flashCell(hit, palette.pathBad);
-      this.setToast('전지에서 시작하세요.', 'bad');
+      this.setToast('+ 전지에서 시작하세요.', 'bad');
       return;
     }
 
@@ -471,7 +485,7 @@ export class CircuitSketchPrototype {
     this.previewPoint = { x: event.global.x, y: event.global.y };
     this.lastPointerPoint = this.previewPoint;
     this.capturePointer(event.pointerId);
-    this.setToast('손을 떼지 말고 전구까지', 'neutral');
+    this.setToast('전구를 지나 -단자까지', 'neutral');
     this.drawActivePath(palette.path);
     this.drawGuide();
     this.publishDebugState();
@@ -500,7 +514,7 @@ export class CircuitSketchPrototype {
     this.preventBrowserGesture(event);
     if (!this.dragging || this.pointerId !== event.pointerId) return;
     this.releasePointer(event.pointerId);
-    this.failDrag('드래그가 끊겼습니다. 다시 전지에서 시작하세요.');
+    this.failDrag('드래그가 끊겼습니다. 다시 +에서 시작하세요.');
   }
 
   private extendAlongPointerSegment(from: { x: number; y: number }, to: { x: number; y: number }): void {
@@ -553,12 +567,12 @@ export class CircuitSketchPrototype {
     }
     if (cell.token === 'B') {
       this.flashCell(cell, palette.pathBad);
-      this.setToast('전선이나 전구로 이어야 합니다.', 'bad');
+      this.setToast('전선, 전구, -단자로 이어야 합니다.', 'bad');
       return;
     }
 
     this.path.push(cell);
-    this.setToast(cell.token === 'L' ? '전구 위에서 손을 떼세요.' : '계속 전구까지 이어 보세요.', 'neutral');
+    this.setToast(this.messageForExtendedCell(cell), 'neutral');
     this.publishDebugState();
   }
 
@@ -569,8 +583,7 @@ export class CircuitSketchPrototype {
       return;
     }
 
-    const lamp = this.path[this.path.length - 1];
-    this.poweredLampKeys.add(this.key(lamp));
+    this.path.filter((cell) => cell.token === 'L').forEach((lamp) => this.poweredLampKeys.add(this.key(lamp)));
     this.completedPaths.push([...this.path]);
     this.unlockedLevelControls = true;
     this.dragging = false;
@@ -578,7 +591,7 @@ export class CircuitSketchPrototype {
     this.previewPoint = undefined;
     this.lastPointerPoint = undefined;
     const complete = this.poweredLampKeys.size >= this.currentBoard.requiredLamps;
-    this.setToast(complete ? '성공. 다른 단계가 열렸습니다.' : '전구가 켜졌습니다. 계속 이어 보세요.', 'good');
+    this.setToast(complete ? '회로 완성. 다른 단계가 열렸습니다.' : '전구가 켜졌습니다. 계속 이어 보세요.', 'good');
     this.renderScene();
   }
 
@@ -591,22 +604,28 @@ export class CircuitSketchPrototype {
     window.clearTimeout(this.resetTimer);
     this.resetTimer = window.setTimeout(() => {
       this.path = [];
-      this.setToast('전지에서 전구까지 드래그하세요.', 'neutral');
+      this.setToast('+에서 전구를 지나 -까지 드래그하세요.', 'neutral');
       this.renderScene();
     }, 620);
   }
 
   private validatePath(): { ok: true } | { ok: false; reason: string } {
-    if (this.path.length === 0) return { ok: false, reason: '전지에서 시작해야 합니다.' };
+    if (this.path.length === 0) return { ok: false, reason: '+ 전지에서 시작해야 합니다.' };
     const first = this.path[0];
     const last = this.path[this.path.length - 1];
+    const lampsInPath = this.path.filter((cell) => cell.token === 'L');
 
-    if (first.token !== 'B') return { ok: false, reason: '전지에서 시작해야 합니다.' };
-    if (last.token !== 'L') return { ok: false, reason: '전구에서 손을 떼세요.' };
-    if (this.poweredLampKeys.has(this.key(last))) return { ok: false, reason: '이미 켜진 전구입니다.' };
+    if (first.token !== 'B') return { ok: false, reason: '+ 전지에서 시작해야 합니다.' };
+    if (last.token !== 'T') return { ok: false, reason: '-단자에서 손을 떼세요.' };
+    if (lampsInPath.length === 0) return { ok: false, reason: '전구를 지나야 회로가 완성됩니다.' };
+    if (lampsInPath.every((lamp) => this.poweredLampKeys.has(this.key(lamp)))) {
+      return { ok: false, reason: '이미 켜진 전구입니다.' };
+    }
 
     for (let index = 1; index < this.path.length - 1; index += 1) {
-      if (this.path[index].token !== 'W') return { ok: false, reason: '중간에는 전선만 지나갑니다.' };
+      if (this.path[index].token !== 'W' && this.path[index].token !== 'L') {
+        return { ok: false, reason: '중간에는 전선과 전구만 지나갑니다.' };
+      }
     }
 
     for (let index = 1; index < this.path.length; index += 1) {
@@ -616,6 +635,12 @@ export class CircuitSketchPrototype {
     }
 
     return { ok: true };
+  }
+
+  private messageForExtendedCell(cell: Cell): string {
+    if (cell.token === 'L') return '전구 통과. -단자까지 이어 보세요.';
+    if (cell.token === 'T') return '-단자에서 손을 떼세요.';
+    return '계속 회로를 닫아 보세요.';
   }
 
   private drawCompletedPaths(): void {
@@ -650,21 +675,21 @@ export class CircuitSketchPrototype {
     if (this.dragging || this.poweredLampKeys.size > 0) return;
     const guideCells = this.getPrimaryGuidePath();
     const start = guideCells[0];
-    const lamp = guideCells[guideCells.length - 1];
-    if (!start || !lamp || guideCells.length < 2) return;
+    const terminal = guideCells[guideCells.length - 1];
+    if (!start || !terminal || guideCells.length < 2) return;
 
     const pulse = 0.5 + Math.sin(this.guideClock) * 0.5;
     const startCenter = this.centerOfView(start);
-    const lampCenter = this.centerOfView(lamp);
+    const terminalCenter = this.centerOfView(terminal);
     const points = guideCells.map((cell) => this.centerOfView(cell));
     this.guideLayer.circle(startCenter.x, startCenter.y, start.size * (0.45 + pulse * 0.08)).stroke({
       width: 4,
       color: palette.guide,
       alpha: 0.75
     });
-    this.guideLayer.circle(lampCenter.x, lampCenter.y, lamp.size * 0.38).stroke({
+    this.guideLayer.circle(terminalCenter.x, terminalCenter.y, terminal.size * 0.38).stroke({
       width: 4,
-      color: palette.lampOn,
+      color: palette.terminalStroke,
       alpha: 0.75
     });
     this.drawGuideDashes(points);
@@ -684,20 +709,20 @@ export class CircuitSketchPrototype {
     const path = [start];
     let current = start;
 
-    while (current.cell.token !== 'L') {
+    while (current.cell.token !== 'T') {
       const next = this.getAdjacentCellViews(current.cell)
         .filter((view) => !visited.has(this.key(view.cell)))
-        .find(({ cell }) => cell.token === 'W' || cell.token === 'L');
+        .find(({ cell }) => cell.token === 'W' || cell.token === 'L' || cell.token === 'T');
       if (!next) break;
       path.push(next);
       visited.add(this.key(next.cell));
       current = next;
     }
 
-    if (path[path.length - 1]?.cell.token === 'L') return path;
+    if (path[path.length - 1]?.cell.token === 'T') return path;
 
-    const lamp = [...this.cells.values()].find(({ cell }) => cell.token === 'L');
-    return start && lamp ? [start, lamp] : [];
+    const terminal = [...this.cells.values()].find(({ cell }) => cell.token === 'T');
+    return start && terminal ? [start, terminal] : [];
   }
 
   private getAdjacentCellViews(cell: Cell): CellView[] {
@@ -816,9 +841,10 @@ export class CircuitSketchPrototype {
   };
 
   private labelFor(token: Token): string {
-    if (token === 'B') return '전';
+    if (token === 'B') return '+';
     if (token === 'W') return '선';
     if (token === 'L') return '등';
+    if (token === 'T') return '-';
     return '';
   }
 
@@ -842,7 +868,13 @@ export class CircuitSketchPrototype {
       dragging: this.dragging,
       pathLength: this.path.length,
       toast: this.toast,
-      buildId: this.options.buildId
+      buildId: this.options.buildId,
+      cells: [...this.cells.values()].map((view) => ({
+        row: view.cell.row,
+        col: view.cell.col,
+        token: view.cell.token,
+        ...this.centerOfView(view)
+      }))
     };
   }
 

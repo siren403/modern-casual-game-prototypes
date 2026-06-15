@@ -45,27 +45,21 @@ async function dragTouch(client, points) {
   await dispatchTouch(client, 'touchEnd', points[points.length - 1]);
 }
 
-async function getFirstBoardCenters(page) {
-  return page.$eval('canvas', (canvas) => {
-    const rect = canvas.getBoundingClientRect();
-    const width = rect.width;
-    const height = rect.height;
-    const topSpace = Math.max(112, height * 0.18);
-    const bottomSpace = 86;
-    const cols = 3;
-    const rows = 1;
-    const usableWidth = Math.max(260, width - 30);
-    const usableHeight = Math.max(220, height - topSpace - bottomSpace);
-    const cellSize = Math.floor(Math.min(104, usableWidth / (cols + 0.55), usableHeight / (rows + 0.25)));
-    const gap = Math.max(8, Math.floor(cellSize * 0.11));
-    const boardWidth = cols * cellSize + (cols - 1) * gap;
-    const boardHeight = rows * cellSize + (rows - 1) * gap;
-    const originX = rect.left + (width - boardWidth) / 2;
-    const originY = rect.top + topSpace + (usableHeight - boardHeight) / 2;
+async function getFirstBoardPath(page) {
+  return page.evaluate(() => {
+    const cells = window.__circuitSketchState?.cells ?? [];
+    const path = cells
+      .filter((cell) => cell.row === 0 && ['B', 'W', 'L', 'T'].includes(cell.token))
+      .sort((a, b) => a.col - b.col);
+    const battery = path.find((cell) => cell.token === 'B');
+    const terminal = path.find((cell) => cell.token === 'T');
+    if (!battery || !terminal || path.length < 5) {
+      throw new Error(`Unexpected first board path: ${JSON.stringify(path)}`);
+    }
     return {
-      battery: { x: originX + cellSize / 2, y: originY + cellSize / 2 },
-      wire: { x: originX + cellSize + gap + cellSize / 2, y: originY + cellSize / 2 },
-      lamp: { x: originX + (cellSize + gap) * 2 + cellSize / 2, y: originY + cellSize / 2 }
+      battery,
+      terminal,
+      path: path.map(({ x, y }) => ({ x, y }))
     };
   });
 }
@@ -133,7 +127,7 @@ async function main() {
     assert(browserDefaultsPrevented.contextmenu, 'contextmenu was not prevented on canvas');
     assert(browserDefaultsPrevented.selectstart, 'selectstart was not prevented on canvas');
 
-    const centers = await getFirstBoardCenters(page);
+    const centers = await getFirstBoardPath(page);
     await dispatchTouch(client, 'touchStart', centers.battery);
     await page.waitForTimeout(1500);
     await dispatchTouch(client, 'touchEnd', centers.battery);
@@ -145,14 +139,14 @@ async function main() {
 
     await page.reload({ waitUntil: 'networkidle' });
     await waitForGame(page);
-    const smoothCenters = await getFirstBoardCenters(page);
-    await dragTouch(client, [smoothCenters.battery, smoothCenters.wire, smoothCenters.lamp]);
+    const smoothCenters = await getFirstBoardPath(page);
+    await dragTouch(client, smoothCenters.path);
     await page.waitForFunction(() => window.__circuitSketchState?.powered === 1, null, { timeout: 2000 });
 
     await page.reload({ waitUntil: 'networkidle' });
     await waitForGame(page);
-    const fastCenters = await getFirstBoardCenters(page);
-    await dragTouch(client, [fastCenters.battery, fastCenters.lamp]);
+    const fastCenters = await getFirstBoardPath(page);
+    await dragTouch(client, [fastCenters.battery, fastCenters.terminal]);
     await page.waitForFunction(() => window.__circuitSketchState?.powered === 1, null, { timeout: 2000 });
 
     const finalState = await page.evaluate(() => window.__circuitSketchState);
