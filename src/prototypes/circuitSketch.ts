@@ -7,7 +7,7 @@ import {
   TextStyle
 } from 'pixi.js';
 
-type Token = 'B' | 'W' | 'L' | 'T' | 'X' | '.';
+type Token = 'B' | 'W' | 'L' | 'S' | 'T' | 'X' | '.';
 type Tone = 'neutral' | 'good' | 'bad';
 
 type Cell = {
@@ -22,6 +22,8 @@ type Board = {
   goal: string;
   grid: Token[][];
   requiredLamps: number;
+  requiresSwitch?: boolean;
+  guideMode?: 'path' | 'targets';
 };
 
 type CellView = {
@@ -53,11 +55,17 @@ declare global {
 
 const boards: Board[] = [
   {
-    id: 'linear',
+    id: 'switch-choice',
     title: '1단계',
-    goal: '+에서 시작해 전구를 지나 -단자까지',
-    grid: [['B', 'W', 'L', 'W', 'T']],
-    requiredLamps: 1
+    goal: '스위치를 먼저 지나 전구 켜기',
+    grid: [
+      ['B', 'W', 'L', 'W', 'T'],
+      ['W', 'X', 'X', 'X', 'W'],
+      ['S', 'W', 'L', 'W', 'W']
+    ],
+    requiredLamps: 1,
+    requiresSwitch: true,
+    guideMode: 'targets'
   },
   {
     id: 'detour',
@@ -96,6 +104,8 @@ const palette = {
   lamp: 0xf7f0bf,
   lampOn: 0xffd65a,
   lampStroke: 0x957415,
+  switch: 0xbfead8,
+  switchStroke: 0x127a5a,
   terminal: 0xe8eef7,
   terminalStroke: 0x43536a,
   broken: 0x2f3540,
@@ -136,7 +146,7 @@ export class CircuitSketchPrototype {
   private pointerId: number | undefined;
   private previewPoint: { x: number; y: number } | undefined;
   private lastPointerPoint: { x: number; y: number } | undefined;
-  private toast = '+에서 전구를 지나 -까지 드래그하세요.';
+  private toast = '+에서 조건을 확인하고 -까지 드래그하세요.';
   private tone: Tone = 'neutral';
   private unlockedLevelControls = false;
   private guideClock = 0;
@@ -213,7 +223,7 @@ export class CircuitSketchPrototype {
     this.pointerId = undefined;
     this.previewPoint = undefined;
     this.lastPointerPoint = undefined;
-    this.toast = '+에서 전구를 지나 -까지 드래그하세요.';
+    this.toast = '+에서 조건을 확인하고 -까지 드래그하세요.';
     this.tone = 'neutral';
     this.renderScene();
   }
@@ -340,6 +350,20 @@ export class CircuitSketchPrototype {
         color: palette.lampStroke
       });
       if (powered) shape.circle(cx, cy, size * 0.38).stroke({ width: 4, color: 0xffe890, alpha: 0.88 });
+    }
+
+    if (token === 'S') {
+      shape.circle(cx, cy, size * 0.25).fill(palette.switch).stroke({
+        width: 3,
+        color: palette.switchStroke
+      });
+      shape.moveTo(cx - size * 0.18, cy + size * 0.11).lineTo(cx + size * 0.15, cy - size * 0.13).stroke({
+        width: 5,
+        color: palette.switchStroke,
+        cap: 'round'
+      });
+      shape.circle(cx - size * 0.2, cy + size * 0.12, size * 0.04).fill(palette.switchStroke);
+      shape.circle(cx + size * 0.2, cy - size * 0.15, size * 0.04).fill(palette.switchStroke);
     }
 
     if (token === 'T') {
@@ -485,7 +509,7 @@ export class CircuitSketchPrototype {
     this.previewPoint = { x: event.global.x, y: event.global.y };
     this.lastPointerPoint = this.previewPoint;
     this.capturePointer(event.pointerId);
-    this.setToast('전구를 지나 -단자까지', 'neutral');
+    this.setToast(this.currentBoard.requiresSwitch ? '스위치 조건을 보고 이어 보세요.' : '전구를 지나 -단자까지', 'neutral');
     this.drawActivePath(palette.path);
     this.drawGuide();
     this.publishDebugState();
@@ -562,12 +586,12 @@ export class CircuitSketchPrototype {
     }
     if (cell.token === 'X' || cell.token === '.') {
       this.flashCell(cell, palette.pathBad);
-      this.setToast('끊긴 전선은 지나갈 수 없습니다.', 'bad');
+      this.setToast('막힌 칸은 지나갈 수 없습니다.', 'bad');
       return;
     }
     if (cell.token === 'B') {
       this.flashCell(cell, palette.pathBad);
-      this.setToast('전선, 전구, -단자로 이어야 합니다.', 'bad');
+      this.setToast('전선, 전구, 스위치, -단자로 이어야 합니다.', 'bad');
       return;
     }
 
@@ -604,7 +628,7 @@ export class CircuitSketchPrototype {
     window.clearTimeout(this.resetTimer);
     this.resetTimer = window.setTimeout(() => {
       this.path = [];
-      this.setToast('+에서 전구를 지나 -까지 드래그하세요.', 'neutral');
+      this.setToast('+에서 조건을 확인하고 -까지 드래그하세요.', 'neutral');
       this.renderScene();
     }, 620);
   }
@@ -614,17 +638,22 @@ export class CircuitSketchPrototype {
     const first = this.path[0];
     const last = this.path[this.path.length - 1];
     const lampsInPath = this.path.filter((cell) => cell.token === 'L');
+    const firstSwitchIndex = this.path.findIndex((cell) => cell.token === 'S');
+    const firstLampIndex = this.path.findIndex((cell) => cell.token === 'L');
 
     if (first.token !== 'B') return { ok: false, reason: '+ 전지에서 시작해야 합니다.' };
     if (last.token !== 'T') return { ok: false, reason: '-단자에서 손을 떼세요.' };
     if (lampsInPath.length === 0) return { ok: false, reason: '전구를 지나야 회로가 완성됩니다.' };
+    if (this.currentBoard.requiresSwitch && (firstSwitchIndex < 0 || firstSwitchIndex > firstLampIndex)) {
+      return { ok: false, reason: '스위치를 먼저 지나야 전구가 켜집니다.' };
+    }
     if (lampsInPath.every((lamp) => this.poweredLampKeys.has(this.key(lamp)))) {
       return { ok: false, reason: '이미 켜진 전구입니다.' };
     }
 
     for (let index = 1; index < this.path.length - 1; index += 1) {
-      if (this.path[index].token !== 'W' && this.path[index].token !== 'L') {
-        return { ok: false, reason: '중간에는 전선과 전구만 지나갑니다.' };
+      if (this.path[index].token !== 'W' && this.path[index].token !== 'L' && this.path[index].token !== 'S') {
+        return { ok: false, reason: '중간에는 전선, 전구, 스위치만 지나갑니다.' };
       }
     }
 
@@ -638,6 +667,7 @@ export class CircuitSketchPrototype {
   }
 
   private messageForExtendedCell(cell: Cell): string {
+    if (cell.token === 'S') return '스위치 통과. 이제 전구로 이어 보세요.';
     if (cell.token === 'L') return '전구 통과. -단자까지 이어 보세요.';
     if (cell.token === 'T') return '-단자에서 손을 떼세요.';
     return '계속 회로를 닫아 보세요.';
@@ -681,7 +711,6 @@ export class CircuitSketchPrototype {
     const pulse = 0.5 + Math.sin(this.guideClock) * 0.5;
     const startCenter = this.centerOfView(start);
     const terminalCenter = this.centerOfView(terminal);
-    const points = guideCells.map((cell) => this.centerOfView(cell));
     this.guideLayer.circle(startCenter.x, startCenter.y, start.size * (0.45 + pulse * 0.08)).stroke({
       width: 4,
       color: palette.guide,
@@ -692,6 +721,22 @@ export class CircuitSketchPrototype {
       color: palette.terminalStroke,
       alpha: 0.75
     });
+
+    if (this.currentBoard.guideMode === 'targets') {
+      [...this.cells.values()]
+        .filter(({ cell }) => cell.token === 'S')
+        .forEach((view) => {
+          const center = this.centerOfView(view);
+          this.guideLayer.circle(center.x, center.y, view.size * (0.36 + pulse * 0.06)).stroke({
+            width: 4,
+            color: palette.switchStroke,
+            alpha: 0.7
+          });
+        });
+      return;
+    }
+
+    const points = guideCells.map((cell) => this.centerOfView(cell));
     this.drawGuideDashes(points);
     this.drawGuideArrow(points[points.length - 2], points[points.length - 1]);
     const t = (this.guideClock * 0.42) % 1;
@@ -712,7 +757,7 @@ export class CircuitSketchPrototype {
     while (current.cell.token !== 'T') {
       const next = this.getAdjacentCellViews(current.cell)
         .filter((view) => !visited.has(this.key(view.cell)))
-        .find(({ cell }) => cell.token === 'W' || cell.token === 'L' || cell.token === 'T');
+        .find(({ cell }) => cell.token === 'W' || cell.token === 'L' || cell.token === 'S' || cell.token === 'T');
       if (!next) break;
       path.push(next);
       visited.add(this.key(next.cell));
@@ -844,6 +889,7 @@ export class CircuitSketchPrototype {
     if (token === 'B') return '+';
     if (token === 'W') return '선';
     if (token === 'L') return '등';
+    if (token === 'S') return '스';
     if (token === 'T') return '-';
     return '';
   }

@@ -14,7 +14,7 @@ export const prototypes: PrototypeMeta[] = [
     type: 'hypothetical concept',
     status: '플레이 가능 마이크로 테스트',
     summary:
-      '+ 전지에서 시작해 전구를 지나 -단자까지 회로를 닫는 퍼즐입니다. 단어 맞추기 대신 기호 규칙만으로 재미가 생기는지 확인합니다.',
+      '+ 전지에서 시작해 조건을 만족하는 회로를 닫는 퍼즐입니다. 짧지만 틀린 경로와 스위치 조건을 만족하는 경로가 갈리도록 만들어, 단어 맞추기의 후보 판별 재미가 기호 규칙으로 옮겨지는지 확인합니다.',
     route: '#/circuit-sketch'
   }
 ];

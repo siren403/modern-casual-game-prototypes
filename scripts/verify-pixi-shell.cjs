@@ -45,21 +45,42 @@ async function dragTouch(client, points) {
   await dispatchTouch(client, 'touchEnd', points[points.length - 1]);
 }
 
-async function getFirstBoardPath(page) {
+async function getFirstBoardPaths(page) {
   return page.evaluate(() => {
     const cells = window.__circuitSketchState?.cells ?? [];
-    const path = cells
-      .filter((cell) => cell.row === 0 && ['B', 'W', 'L', 'T'].includes(cell.token))
-      .sort((a, b) => a.col - b.col);
-    const battery = path.find((cell) => cell.token === 'B');
-    const terminal = path.find((cell) => cell.token === 'T');
-    if (!battery || !terminal || path.length < 5) {
-      throw new Error(`Unexpected first board path: ${JSON.stringify(path)}`);
+    const byPosition = new Map(cells.map((cell) => [`${cell.row}:${cell.col}`, cell]));
+    const point = (row, col) => {
+      const cell = byPosition.get(`${row}:${col}`);
+      if (!cell) throw new Error(`Missing cell ${row}:${col}`);
+      return { x: cell.x, y: cell.y };
+    };
+    const cellAt = (row, col) => byPosition.get(`${row}:${col}`);
+    const battery = cellAt(0, 0);
+    const terminal = cellAt(0, 4);
+    if (!battery || battery.token !== 'B' || !terminal || terminal.token !== 'T') {
+      throw new Error(`Unexpected first board layout: ${JSON.stringify(cells)}`);
     }
     return {
       battery,
       terminal,
-      path: path.map(({ x, y }) => ({ x, y }))
+      invalidPath: [
+        point(0, 0),
+        point(0, 1),
+        point(0, 2),
+        point(0, 3),
+        point(0, 4)
+      ],
+      validPath: [
+        point(0, 0),
+        point(1, 0),
+        point(2, 0),
+        point(2, 1),
+        point(2, 2),
+        point(2, 3),
+        point(2, 4),
+        point(1, 4),
+        point(0, 4)
+      ]
     };
   });
 }
@@ -127,7 +148,7 @@ async function main() {
     assert(browserDefaultsPrevented.contextmenu, 'contextmenu was not prevented on canvas');
     assert(browserDefaultsPrevented.selectstart, 'selectstart was not prevented on canvas');
 
-    const centers = await getFirstBoardPath(page);
+    const centers = await getFirstBoardPaths(page);
     await dispatchTouch(client, 'touchStart', centers.battery);
     await page.waitForTimeout(1500);
     await dispatchTouch(client, 'touchEnd', centers.battery);
@@ -139,14 +160,23 @@ async function main() {
 
     await page.reload({ waitUntil: 'networkidle' });
     await waitForGame(page);
-    const smoothCenters = await getFirstBoardPath(page);
-    await dragTouch(client, smoothCenters.path);
+    const invalidCenters = await getFirstBoardPaths(page);
+    await dragTouch(client, invalidCenters.invalidPath);
+    await page.waitForTimeout(120);
+    const invalidState = await page.evaluate(() => window.__circuitSketchState);
+    assert(invalidState.powered === 0, `invalid direct path powered a lamp: ${JSON.stringify(invalidState)}`);
+    assert(invalidState.toast.includes('스위치'), `invalid direct path did not explain switch rule: ${JSON.stringify(invalidState)}`);
+
+    await page.reload({ waitUntil: 'networkidle' });
+    await waitForGame(page);
+    const smoothCenters = await getFirstBoardPaths(page);
+    await dragTouch(client, smoothCenters.validPath);
     await page.waitForFunction(() => window.__circuitSketchState?.powered === 1, null, { timeout: 2000 });
 
     await page.reload({ waitUntil: 'networkidle' });
     await waitForGame(page);
-    const fastCenters = await getFirstBoardPath(page);
-    await dragTouch(client, [fastCenters.battery, fastCenters.terminal]);
+    const fastCenters = await getFirstBoardPaths(page);
+    await dragTouch(client, fastCenters.validPath);
     await page.waitForFunction(() => window.__circuitSketchState?.powered === 1, null, { timeout: 2000 });
 
     const finalState = await page.evaluate(() => window.__circuitSketchState);
