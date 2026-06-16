@@ -7,7 +7,9 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc && vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "verify:pixi-shell": "node scripts/verify-pixi-shell.cjs"
+    "verify:pixi-shell": "node scripts/verify-pixi-shell.cjs",
+    "verify:tiny-dispatch": "node scripts/verify-tiny-dispatch-puzzles.cjs",
+    "verify:tiny-dispatch-ui": "node scripts/verify-tiny-dispatch-ui.cjs"
   },
   "dependencies": {
     "pixi.js": "^8.8.1"

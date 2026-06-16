@@ -252,6 +252,240 @@ body.is-game-route * {
   line-height: 1.5;
 }
 
+.tiny-shell {
+  min-height: 100dvh;
+  background: #f6f7f3;
+}
+
+.tiny-dispatch {
+  min-height: 100dvh;
+}
+
+.td-page {
+  width: min(1180px, 100%);
+  margin: 0 auto;
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.td-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #d8ded6;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.td-title-block {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.td-kicker,
+.td-progress {
+  color: #667064;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.td-title-block h1 {
+  margin: 0;
+  font-size: 25px;
+  line-height: 1.15;
+  letter-spacing: 0;
+}
+
+.td-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.td-actions button,
+.td-panel button {
+  min-height: 34px;
+  border: 1px solid #cbd5c8;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #202820;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.td-actions button {
+  padding: 0 10px;
+}
+
+.td-rules {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid #d8ded6;
+  border-radius: 8px;
+  background: #eef7ec;
+}
+
+.td-rules strong {
+  color: #315c39;
+  font-size: 13px;
+}
+
+.td-rules p,
+.td-rules ul {
+  margin: 0;
+  color: #334033;
+  line-height: 1.45;
+}
+
+.td-rules ul {
+  padding-left: 18px;
+}
+
+.td-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+  gap: 12px;
+  align-items: start;
+}
+
+.td-board-wrap,
+.td-side {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.td-board,
+.td-clues,
+.td-panel {
+  padding: 12px;
+  border: 1px solid #d8ded6;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.td-board-title,
+.td-section-title {
+  margin-bottom: 8px;
+  color: #263225;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.td-grid {
+  display: grid;
+  grid-template-columns: minmax(54px, 0.9fr) repeat(var(--td-cols), minmax(42px, 1fr));
+  gap: 5px;
+}
+
+.td-cell {
+  min-width: 0;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #d6ded2;
+  border-radius: 7px;
+  color: #263225;
+  font-size: 13px;
+  font-weight: 750;
+  text-align: center;
+}
+
+.td-head,
+.td-rowhead {
+  background: #f5f7f1;
+}
+
+.td-rowhead {
+  justify-content: flex-start;
+  padding-left: 8px;
+}
+
+.td-mark {
+  background: #ffffff;
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.td-mark.no {
+  background: #f3f0ef;
+  color: #9a4039;
+}
+
+.td-mark.yes {
+  border-color: #7ab481;
+  background: #dff2e1;
+  color: #23612e;
+}
+
+.td-clues,
+.td-panel {
+  display: grid;
+  gap: 8px;
+}
+
+.td-clue {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 8px;
+  align-items: start;
+  padding: 8px;
+  border: 1px solid #dce2d9;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #273126;
+  text-align: left;
+  cursor: pointer;
+}
+
+.td-clue.selected {
+  border-color: #5d8f66;
+  background: #eef8ef;
+}
+
+.td-clue span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #334033;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.td-clue p,
+.td-panel p {
+  margin: 0;
+  color: #3a4638;
+  line-height: 1.45;
+}
+
+.td-panel button {
+  width: 100%;
+}
+
+.td-status.good {
+  border-color: #78ae7e;
+  background: #eef8ef;
+}
+
+.td-status.bad {
+  border-color: #d2958f;
+  background: #fff2f0;
+}
+
 .prototype-view {
   display: grid;
   grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
@@ -568,6 +802,43 @@ body.is-game-route * {
   .legend-item {
     font-size: 12px;
   }
+
+  .td-page {
+    padding: 10px;
+  }
+
+  .td-header {
+    display: grid;
+  }
+
+  .td-actions {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+  }
+
+  .td-actions button {
+    padding: 0 4px;
+    font-size: 13px;
+  }
+
+  .td-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .td-grid {
+    grid-template-columns: minmax(44px, 0.76fr) repeat(var(--td-cols), minmax(34px, 1fr));
+    gap: 4px;
+  }
+
+  .td-cell {
+    min-height: 36px;
+    border-radius: 6px;
+    font-size: 11px;
+  }
+
+  .td-mark {
+    font-size: 18px;
+  }
 }
 
 @media (max-width: 420px) {
@@ -595,5 +866,31 @@ body.is-game-route * {
 
   .stage {
     height: 88vw;
+  }
+
+  .td-page {
+    padding: 8px;
+  }
+
+  .td-title-block h1 {
+    font-size: 22px;
+  }
+
+  .td-board,
+  .td-clues,
+  .td-panel,
+  .td-rules,
+  .td-header {
+    padding: 10px;
+  }
+
+  .td-grid {
+    grid-template-columns: minmax(40px, 0.7fr) repeat(var(--td-cols), minmax(30px, 1fr));
+    gap: 3px;
+  }
+
+  .td-cell {
+    min-height: 34px;
+    font-size: 10px;
   }
 }

@@ -1,6 +1,7 @@
 import './styles.css';
 import { CircuitSketchPrototype } from './prototypes/circuitSketch';
 import { getPrototype, prototypes } from './prototypes/registry';
+import { TinyDispatchPrototype } from './prototypes/tinyDispatch/tinyDispatch';
 
 let cleanup: (() => void) | undefined;
 
@@ -103,10 +104,47 @@ function renderCircuitSketch(): void {
   cleanup = () => sketch.destroy();
 }
 
+function renderTinyDispatch(): void {
+  const prototype = getPrototype('tiny-dispatch');
+  if (!prototype) {
+    renderHome();
+    return;
+  }
+
+  const buildId =
+    (import.meta as ImportMeta & { env?: { VITE_BUILD_ID?: string } }).env?.VITE_BUILD_ID?.slice(0, 7) ?? 'local';
+
+  const root = renderShell(
+    `
+    <main class="tiny-shell" aria-label="${prototype.title}">
+      <div id="tiny-dispatch-stage"></div>
+    </main>
+  `
+  );
+
+  const stage = root.querySelector<HTMLElement>('#tiny-dispatch-stage');
+  if (!stage) throw new Error('Missing tiny dispatch mount node');
+
+  const dispatch = new TinyDispatchPrototype({
+    container: stage,
+    buildId,
+    onExit: () => {
+      window.location.hash = '';
+    }
+  });
+
+  dispatch.mount();
+  cleanup = () => dispatch.destroy();
+}
+
 function route(): void {
   const hash = window.location.hash.replace(/^#\/?/, '');
   if (hash === 'circuit-sketch') {
     renderCircuitSketch();
+    return;
+  }
+  if (hash === 'tiny-dispatch') {
+    renderTinyDispatch();
     return;
   }
   renderHome();
