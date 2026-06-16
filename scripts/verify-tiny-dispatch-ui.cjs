@@ -78,15 +78,19 @@ async function main() {
       scrollX: window.scrollX,
       docW: document.documentElement.scrollWidth,
       innerW: window.innerWidth,
+      viewport: document.querySelector('meta[name="viewport"]')?.getAttribute('content') ?? '',
       title: document.querySelector('h1')?.textContent,
       state: window.__tinyDispatchState
     }));
     assert(shell.docW <= shell.innerW + 1, `tiny dispatch has horizontal overflow: ${JSON.stringify(shell)}`);
+    assert(shell.viewport.includes('user-scalable=no'), `viewport does not disable zoom: ${JSON.stringify(shell)}`);
     assert(shell.title?.includes('첫 배달'), `unexpected title: ${JSON.stringify(shell)}`);
 
     await page.locator('[data-category="parcels"][data-courier="mina"][data-item="lantern"]').click();
     const firstTapText = await page.locator('[data-category="parcels"][data-courier="mina"][data-item="lantern"]').innerText();
+    const peerText = await page.locator('[data-category="parcels"][data-courier="mina"][data-item="books"]').innerText();
     assert(firstTapText.includes('✓'), `first tap should visibly confirm a cell, got ${firstTapText}`);
+    assert(!peerText.includes('×') && !peerText.includes('✓'), `first tap should not mutate peer cells, got ${peerText}`);
     await page.getByRole('button', { name: '리셋' }).click();
 
     await fillWrongFirstBoard(page);

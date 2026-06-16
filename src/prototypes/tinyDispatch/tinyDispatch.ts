@@ -184,8 +184,8 @@ export class TinyDispatchPrototype {
 
         <section class="td-workspace">
           <section class="td-board-wrap" aria-label="배정 보드">
-            ${this.renderBoard('parcels', puzzle.entities.parcels, '1. 누가 어떤 소포를 맡나요?', '배달원과 소포가 맞으면 체크하세요. 아니면 제외 모드로 X를 표시합니다.')}
-            ${this.renderBoard('destinations', puzzle.entities.destinations, '2. 누가 어디로 가나요?', '배달원과 목적지가 맞으면 체크하세요. 두 보드를 합쳐 한 줄의 배달이 완성됩니다.')}
+            ${this.renderBoard('parcels', puzzle.entities.parcels, '1. 소포 후보표', '왼쪽은 배달원, 위쪽은 소포 이름입니다. 빈 후보칸만 누르세요. 예: 미나 줄의 랜턴 칸은 "미나가 랜턴을 맡는다"는 뜻입니다.')}
+            ${this.renderBoard('destinations', puzzle.entities.destinations, '2. 목적지 후보표', '왼쪽은 배달원, 위쪽은 목적지 이름입니다. 예: 미나 줄의 정원 칸은 "미나가 정원으로 간다"는 뜻입니다.')}
           </section>
 
           <aside class="td-side">
@@ -299,8 +299,7 @@ export class TinyDispatchPrototype {
     const current = this.marks[category][courier][item];
     const next = this.nextMark(current);
     this.marks[category][courier][item] = next;
-    if (next === 'yes') this.applyPeerElimination(category, courier, item);
-    if (next === 'unknown') this.recomputePeerEliminations();
+    if (next === 'unknown') this.clearCell(category, courier, item);
     this.status = this.markStatus(next);
     this.statusTone = 'neutral';
     this.render();
@@ -313,7 +312,7 @@ export class TinyDispatchPrototype {
   }
 
   private markStatus(mark: Mark): string {
-    if (mark === 'yes') return '확정했습니다. 같은 줄과 같은 항목의 나머지 후보는 자동으로 제외됩니다.';
+    if (mark === 'yes') return '이 칸만 확정했습니다. 다른 후보를 지우려면 × 제외 모드를 사용하세요.';
     if (mark === 'no') return '제외했습니다. 단서와 맞지 않는 후보를 X로 지워 나가세요.';
     return '표시를 지웠습니다.';
   }
@@ -324,25 +323,8 @@ export class TinyDispatchPrototype {
     return '지우기 모드입니다. 표시를 지울 칸을 누르세요.';
   }
 
-  private applyPeerElimination(category: Category, courier: string, item: string): void {
-    Object.keys(this.marks[category][courier]).forEach((candidate) => {
-      if (candidate !== item) this.marks[category][courier][candidate] = 'no';
-    });
-    Object.keys(this.marks[category]).forEach((otherCourier) => {
-      if (otherCourier !== courier) this.marks[category][otherCourier][item] = 'no';
-    });
-  }
-
-  private recomputePeerEliminations(): void {
-    const explicitYes: Array<{ category: Category; courier: string; item: string }> = [];
-    (['parcels', 'destinations'] as Category[]).forEach((category) => {
-      Object.entries(this.marks[category]).forEach(([courier, row]) => {
-        Object.entries(row).forEach(([item, mark]) => {
-          if (mark === 'yes') explicitYes.push({ category, courier, item });
-        });
-      });
-    });
-    explicitYes.forEach(({ category, courier, item }) => this.applyPeerElimination(category, courier, item));
+  private clearCell(category: Category, courier: string, item: string): void {
+    this.marks[category][courier][item] = 'unknown';
   }
 
   private checkCurrent(): void {
@@ -435,14 +417,14 @@ export class TinyDispatchPrototype {
   private baseRules(puzzle: Puzzle): string[] {
     if (puzzle.id === 'first-board') {
       return [
-        '소포 보드에서 배달원마다 맡을 소포 1개를 체크합니다.',
-        '목적지 보드에서 배달원마다 갈 목적지 1곳을 체크합니다.',
-        '기본은 확정 모드입니다. 틀린 후보를 지우려면 × 제외 모드를 누르세요.'
+        '왼쪽/위쪽 라벨칸은 이름표라 누르지 않습니다. 안쪽 빈 후보칸만 누릅니다.',
+        '소포 후보표에서 "누가 어떤 소포를 맡는지" 체크합니다.',
+        '목적지 후보표에서 "누가 어디로 가는지" 체크합니다.'
       ];
     }
     return [
-      '위 보드는 소포, 아래 보드는 목적지입니다.',
-      '확정 체크를 하면 같은 줄과 같은 항목의 나머지 후보가 X로 바뀝니다.',
+      '위는 소포 후보표, 아래는 목적지 후보표입니다.',
+      '기본은 ✓ 확정 모드입니다. X를 표시하려면 × 제외 모드를 선택하세요.',
       '각 배달원의 소포와 목적지를 모두 체크한 뒤 확인을 누르세요.'
     ];
   }
@@ -481,7 +463,7 @@ export class TinyDispatchPrototype {
   private markGlyph(mark: Mark): string {
     if (mark === 'yes') return '✓';
     if (mark === 'no') return '×';
-    return '';
+    return '·';
   }
 
   private markLabel(mark: Mark): string {
