@@ -87,14 +87,18 @@ async function main() {
     assert(shell.title?.includes('첫 배달'), `unexpected title: ${JSON.stringify(shell)}`);
     assert((await page.locator('.td-courier-card').count()) === 3, 'first board should render three courier cards');
     assert((await page.locator('.td-grid').count()) === 0, 'grid UI should not be present in Tiny Dispatch');
-    assert(await page.getByText('배달원별 후보 선택').isVisible(), 'direct assignment heading should be visible');
+    assert((await page.locator('[data-apply-clue]').count()) === 0, 'separate clue apply buttons should not be present');
+    assert(await page.getByText('배달 보드').isVisible(), 'board-first heading should be visible');
+    const boardBox = await page.locator('.td-board').boundingBox();
+    const clueBox = await page.locator('.td-clues').boundingBox();
+    assert(boardBox && clueBox && boardBox.height > clueBox.height, `main board should dominate the first screen: board=${JSON.stringify(boardBox)} clues=${JSON.stringify(clueBox)}`);
 
     await page.locator('[data-clue="c1"]').click();
     const highlightedClass = await page.locator('[data-category="parcels"][data-courier="mina"][data-item="lantern"]').getAttribute('class');
     assert(highlightedClass?.includes('related exact'), `selected direct clue should highlight its exact choice: ${highlightedClass}`);
-    await page.locator('[data-apply-clue="c1"]').click();
+    await page.locator('[data-category="parcels"][data-courier="mina"][data-item="lantern"]').click();
     const appliedText = await page.locator('[data-category="parcels"][data-courier="mina"][data-item="lantern"]').innerText();
-    assert(appliedText.includes('✓'), `direct clue apply should mark the choice yes, got ${appliedText}`);
+    assert(appliedText.includes('✓'), `direct clue board tap should mark the choice yes, got ${appliedText}`);
     await page.getByRole('button', { name: '리셋' }).click();
 
     await page.locator('[data-category="parcels"][data-courier="mina"][data-item="lantern"]').click();

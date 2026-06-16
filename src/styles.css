@@ -315,7 +315,7 @@ body.is-game-route * {
 .td-panel button,
 .td-modebar button,
 .td-clue-main,
-.td-clue-apply,
+.td-check-button,
 .td-choice {
   touch-action: manipulation;
   -webkit-user-select: none;
@@ -337,29 +337,49 @@ body.is-game-route * {
   padding: 0 10px;
 }
 
-.td-rules {
+.td-hud {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 320px) 92px;
   gap: 8px;
-  padding: 12px 14px;
+  align-items: stretch;
+}
+
+.td-hud-status {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
   border: 1px solid #d8ded6;
   border-radius: 8px;
-  background: #eef7ec;
+  background: #ffffff;
 }
 
-.td-rules strong {
-  color: #315c39;
-  font-size: 13px;
+.td-hud-status strong {
+  flex: 0 0 auto;
+  color: #24582c;
+  font-size: 18px;
+  font-weight: 900;
 }
 
-.td-rules p,
-.td-rules ul {
-  margin: 0;
+.td-hud-status span {
+  min-width: 0;
   color: #334033;
-  line-height: 1.45;
+  font-size: 13px;
+  font-weight: 750;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.td-rules ul {
-  padding-left: 18px;
+.td-hud-status.good {
+  border-color: #78ae7e;
+  background: #eef8ef;
+}
+
+.td-hud-status.bad {
+  border-color: #d2958f;
+  background: #fff2f0;
 }
 
 .td-modebar {
@@ -369,7 +389,7 @@ body.is-game-route * {
 }
 
 .td-modebar button {
-  min-height: 38px;
+  min-height: 42px;
   border: 1px solid #cbd5c8;
   border-radius: 7px;
   background: #ffffff;
@@ -384,17 +404,27 @@ body.is-game-route * {
   color: #1f5d2a;
 }
 
+.td-check-button {
+  min-height: 42px;
+  border: 1px solid #354032;
+  border-radius: 7px;
+  background: #273126;
+  color: #ffffff;
+  font-weight: 900;
+  cursor: pointer;
+}
+
 .td-workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
-  gap: 12px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
   align-items: start;
 }
 
 .td-board-wrap,
-.td-side {
+.td-bottom-ui {
   display: grid;
-  gap: 12px;
+  gap: 8px;
   min-width: 0;
 }
 
@@ -424,6 +454,7 @@ body.is-game-route * {
 
 .td-courier-cards {
   display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
   gap: 10px;
 }
 
@@ -431,7 +462,7 @@ body.is-game-route * {
   min-width: 0;
   display: grid;
   gap: 10px;
-  padding: 10px;
+  padding: 12px;
   border: 1px solid #d6ded2;
   border-radius: 7px;
   background: #fbfcf8;
@@ -471,13 +502,13 @@ body.is-game-route * {
 
 .td-choice-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(78px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
 }
 
 .td-choice {
   min-width: 0;
-  min-height: 42px;
+  min-height: 48px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -550,13 +581,22 @@ body.is-game-route * {
 }
 
 .td-clue {
-  width: 100%;
   display: grid;
-  gap: 6px;
-  padding: 8px;
+  flex: 0 0 min(270px, 78vw);
+  min-width: 0;
+  padding: 9px;
   border: 1px solid #dce2d9;
   border-radius: 7px;
   background: #ffffff;
+}
+
+.td-clue-list {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
 }
 
 .td-clue-main {
@@ -596,16 +636,6 @@ body.is-game-route * {
   margin: 0;
   color: #3a4638;
   line-height: 1.45;
-}
-
-.td-clue-apply {
-  min-height: 32px;
-  border: 1px solid #9ebfa2;
-  border-radius: 6px;
-  background: #ffffff;
-  color: #24582c;
-  font-weight: 850;
-  cursor: pointer;
 }
 
 .td-panel button {
@@ -957,7 +987,19 @@ body.is-game-route * {
     font-size: 13px;
   }
 
+  .td-hud {
+    grid-template-columns: 1fr;
+  }
+
+  .td-hud-status span {
+    white-space: normal;
+  }
+
   .td-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .td-courier-cards {
     grid-template-columns: 1fr;
   }
 
@@ -1004,8 +1046,6 @@ body.is-game-route * {
 
   .td-board,
   .td-clues,
-  .td-panel,
-  .td-rules,
   .td-header {
     padding: 10px;
   }

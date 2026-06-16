@@ -173,19 +173,17 @@ export class TinyDispatchPrototype {
           </nav>
         </header>
 
-        <section class="td-rules" aria-label="규칙">
-          <strong>이번 퍼즐에서 배울 것</strong>
-          <p>${this.escape(this.learningGoalText(puzzle))}</p>
-          <ul>
-            ${this.baseRules(puzzle)
-              .map((rule) => `<li>${this.escape(rule)}</li>`)
-              .join('')}
-          </ul>
+        <section class="td-hud" aria-label="진행 상태">
+          <div class="td-hud-status ${this.statusTone}">
+            <strong>${completeRows}/${puzzle.entities.couriers.length}</strong>
+            <span>${this.escape(this.status)}</span>
+          </div>
           <div class="td-modebar" aria-label="표시 모드">
             <button type="button" class="${this.markMode === 'yes' ? 'active' : ''}" data-mode="yes">✓ 확정</button>
             <button type="button" class="${this.markMode === 'no' ? 'active' : ''}" data-mode="no">× 제외</button>
             <button type="button" class="${this.markMode === 'erase' ? 'active' : ''}" data-mode="erase">지우기</button>
           </div>
+          <button type="button" class="td-check-button" data-action="check">확인</button>
         </section>
 
         <section class="td-workspace">
@@ -193,9 +191,10 @@ export class TinyDispatchPrototype {
             ${this.renderAssignmentCards()}
           </section>
 
-          <aside class="td-side">
+          <aside class="td-bottom-ui">
             <section class="td-clues" aria-label="단서">
-              <div class="td-section-title">단서</div>
+              <div class="td-section-title">단서 트레이</div>
+              <div class="td-clue-list">
               ${puzzle.clues
                 .map(
                   (clue, index) => `
@@ -204,23 +203,11 @@ export class TinyDispatchPrototype {
                         <span>${index + 1}</span>
                         <p>${this.escape(this.clueText(clue))}</p>
                       </button>
-                      ${this.canApplyClue(clue) ? `<button type="button" class="td-clue-apply" data-apply-clue="${this.escape(clue.id)}">단서 적용</button>` : ''}
                     </div>
                   `
                 )
                 .join('')}
-            </section>
-
-            <section class="td-panel">
-              <div class="td-section-title">힌트</div>
-              <p>${this.escape(this.currentHintText())}</p>
-              <button type="button" data-action="hint">힌트 보기</button>
-            </section>
-
-            <section class="td-panel td-status ${this.statusTone}">
-              <div class="td-section-title">상태</div>
-              <p>${this.escape(this.status)}</p>
-              <button type="button" data-action="check">확인</button>
+              </div>
             </section>
           </aside>
         </section>
@@ -234,8 +221,8 @@ export class TinyDispatchPrototype {
     const { couriers } = this.puzzle.entities;
     return `
       <div class="td-board">
-        <div class="td-board-title">배달원별 후보 선택</div>
-        <p class="td-board-help">각 배달원 카드에서 맡을 소포 1개와 갈 목적지 1개를 ✓로 표시하세요. 단서와 맞지 않는 후보는 × 제외 모드로 지울 수 있습니다.</p>
+        <div class="td-board-title">배달 보드</div>
+        <p class="td-board-help">단서를 고르면 보드의 관련 후보가 빛납니다. 파란 후보는 그 단서로 바로 표시할 수 있고, 노란 후보는 서로 연결해 생각해야 합니다.</p>
         <div class="td-courier-cards">
           ${couriers.map((courier) => this.renderCourierCard(courier)).join('')}
         </div>
@@ -295,7 +282,7 @@ export class TinyDispatchPrototype {
         const category = button.dataset.category as Category;
         const courier = button.dataset.courier ?? '';
         const item = button.dataset.item ?? '';
-        this.cycleMark(category, courier, item);
+        this.handleChoice(category, courier, item);
       });
     });
     this.options.container.querySelectorAll<HTMLButtonElement>('.td-clue-main').forEach((button) => {
@@ -306,9 +293,6 @@ export class TinyDispatchPrototype {
         this.render();
       });
     });
-    this.options.container.querySelectorAll<HTMLButtonElement>('[data-apply-clue]').forEach((button) => {
-      button.addEventListener('click', () => this.applyClue(button.dataset.applyClue ?? ''));
-    });
     this.options.container.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((button) => {
       button.addEventListener('click', () => {
         this.markMode = (button.dataset.mode as MarkMode) ?? 'yes';
@@ -317,6 +301,23 @@ export class TinyDispatchPrototype {
         this.render();
       });
     });
+  }
+
+  private handleChoice(category: Category, courier: string, item: string): void {
+    const clue = this.puzzle.clues.find((candidate) => candidate.id === this.selectedClueId);
+    const target = clue
+      ? this.clueTargets(clue).find(
+          (candidate) => candidate.category === category && candidate.courier === courier && candidate.item === item && candidate.mark
+        )
+      : undefined;
+    if (target?.mark) {
+      this.marks[category][courier][item] = target.mark;
+      this.status = target.mark === 'yes' ? '단서가 보드 위 후보에 확정 표시됐습니다.' : '단서가 보드 위 후보에 제외 표시됐습니다.';
+      this.statusTone = 'neutral';
+      this.render();
+      return;
+    }
+    this.cycleMark(category, courier, item);
   }
 
   private handleAction(action: string): void {
@@ -406,20 +407,6 @@ export class TinyDispatchPrototype {
     this.render();
   }
 
-  private applyClue(clueId: string): void {
-    const clue = this.puzzle.clues.find((candidate) => candidate.id === clueId);
-    if (!clue) return;
-    const targets = this.clueTargets(clue).filter((target) => target.courier && target.mark);
-    if (targets.length === 0) return;
-    for (const target of targets) {
-      this.marks[target.category][target.courier as string][target.item] = target.mark as Mark;
-    }
-    this.selectedClueId = clueId;
-    this.status = '단서를 후보에 표시했습니다. 이제 다른 단서와 맞춰 보세요.';
-    this.statusTone = 'neutral';
-    this.render();
-  }
-
   private canApplyClue(clue: Clue): boolean {
     return this.clueTargets(clue).some((target) => target.courier && target.mark);
   }
@@ -427,8 +414,8 @@ export class TinyDispatchPrototype {
   private selectedClueStatus(): string {
     const clue = this.puzzle.clues.find((candidate) => candidate.id === this.selectedClueId);
     if (!clue) return this.status;
-    if (this.canApplyClue(clue)) return '강조된 후보를 보고, 원하면 단서 적용을 눌러 바로 표시하세요.';
-    return '강조된 후보들이 이 단서와 연결됩니다. 어떤 배달원에게 이어지는지 추론해 보세요.';
+    if (this.canApplyClue(clue)) return '파란 후보를 누르면 이 단서가 보드에 바로 표시됩니다.';
+    return '노란 후보들은 서로 연결된 단서입니다. 보드에서 맞는 배달원을 찾아 표시하세요.';
   }
 
   private choiceRelationClass(category: Category, courier: string, item: string): string {
@@ -463,12 +450,6 @@ export class TinyDispatchPrototype {
       ];
     }
     return [];
-  }
-
-  private currentHintText(): string {
-    const trace = this.puzzle.proofTrace;
-    if (trace.length > 0) return '힌트를 누르면 검증된 풀이 순서가 한 단계씩 표시됩니다.';
-    return '힌트를 누르면 다음에 볼 단서를 하나씩 짚어 줍니다.';
   }
 
   private singleYes(row: Record<string, Mark>): string | undefined {
@@ -506,35 +487,10 @@ export class TinyDispatchPrototype {
     return clue.text;
   }
 
-  private baseRules(puzzle: Puzzle): string[] {
-    if (puzzle.id === 'first-board') {
-      return [
-        '각 배달원은 소포 1개만 맡고, 목적지 1곳만 갑니다.',
-        '단서를 읽고 배달원 카드 안에서 맞는 후보를 ✓로 표시합니다.',
-        '아니라고 확신한 후보는 × 제외 모드로 표시해 둘 수 있습니다.'
-      ];
-    }
-    return [
-      '각 배달원 카드에서 소포 후보와 목적지 후보를 따로 표시합니다.',
-      '기본은 ✓ 확정 모드입니다. X를 표시하려면 × 제외 모드를 선택하세요.',
-      '각 배달원의 소포와 목적지를 모두 체크한 뒤 확인을 누르세요.'
-    ];
-  }
-
   private assignmentSummary(parcel: string | undefined, destination: string | undefined): string {
     const parcelText = parcel ? this.label(parcel) : '소포 미정';
     const destinationText = destination ? this.label(destination) : '목적지 미정';
     return `${parcelText} / ${destinationText}`;
-  }
-
-  private learningGoalText(puzzle: Puzzle): string {
-    const fallback = puzzle.learningGoal.join(' ');
-    if (puzzle.id === 'first-board') return '기본 배정 규칙과 확정/제외 표시를 익힙니다.';
-    if (puzzle.id === 'linked-parcel') return '소포와 목적지가 연결된 단서를 배웁니다.';
-    if (puzzle.id === 'either-or') return '둘 중 하나 단서가 후보를 좁히는 방식을 배웁니다.';
-    if (puzzle.id === 'negative-link') return '특정 소포가 갈 수 없는 목적지를 제외합니다.';
-    if (puzzle.id === 'mixed-daily') return '여러 단서 타입을 섞은 샘플 퍼즐입니다.';
-    return fallback;
   }
 
   private translateProof(text: string): string {
