@@ -4,6 +4,7 @@ import { playablePuzzles } from './puzzleFixtures.js';
 import { checkSolution } from './puzzleValidator.js';
 
 type Mark = 'unknown' | 'no' | 'yes';
+type MarkMode = 'yes' | 'no' | 'erase';
 type Category = 'parcels' | 'destinations';
 
 type Entity = {
@@ -99,6 +100,7 @@ export class TinyDispatchPrototype {
   private hintIndex = 0;
   private selectedClueId = '';
   private completed = new Set<string>();
+  private markMode: MarkMode = 'yes';
 
   constructor(options: TinyDispatchOptions) {
     this.options = options;
@@ -125,6 +127,7 @@ export class TinyDispatchPrototype {
     this.statusTone = 'neutral';
     this.hintIndex = 0;
     this.selectedClueId = '';
+    this.markMode = 'yes';
     this.render();
   }
 
@@ -172,12 +175,17 @@ export class TinyDispatchPrototype {
               .map((rule) => `<li>${this.escape(rule)}</li>`)
               .join('')}
           </ul>
+          <div class="td-modebar" aria-label="표시 모드">
+            <button type="button" class="${this.markMode === 'yes' ? 'active' : ''}" data-mode="yes">✓ 확정</button>
+            <button type="button" class="${this.markMode === 'no' ? 'active' : ''}" data-mode="no">× 제외</button>
+            <button type="button" class="${this.markMode === 'erase' ? 'active' : ''}" data-mode="erase">지우기</button>
+          </div>
         </section>
 
         <section class="td-workspace">
           <section class="td-board-wrap" aria-label="배정 보드">
-            ${this.renderBoard('parcels', puzzle.entities.parcels, '소포')}
-            ${this.renderBoard('destinations', puzzle.entities.destinations, '목적지')}
+            ${this.renderBoard('parcels', puzzle.entities.parcels, '1. 누가 어떤 소포를 맡나요?', '배달원과 소포가 맞으면 체크하세요. 아니면 제외 모드로 X를 표시합니다.')}
+            ${this.renderBoard('destinations', puzzle.entities.destinations, '2. 누가 어디로 가나요?', '배달원과 목적지가 맞으면 체크하세요. 두 보드를 합쳐 한 줄의 배달이 완성됩니다.')}
           </section>
 
           <aside class="td-side">
@@ -214,11 +222,12 @@ export class TinyDispatchPrototype {
     this.publishDebugState();
   }
 
-  private renderBoard(category: Category, entities: Entity[], title: string): string {
+  private renderBoard(category: Category, entities: Entity[], title: string, help: string): string {
     const couriers = this.puzzle.entities.couriers;
     return `
       <div class="td-board" data-board="${category}">
-        <div class="td-board-title">${title}</div>
+        <div class="td-board-title">${this.escape(title)}</div>
+        <p class="td-board-help">${this.escape(help)}</p>
         <div class="td-grid" style="--td-cols: ${entities.length + 1}">
           <div class="td-cell td-head"></div>
           ${entities.map((entity) => `<div class="td-cell td-head">${this.escape(this.label(entity.id))}</div>`).join('')}
@@ -267,6 +276,14 @@ export class TinyDispatchPrototype {
         this.render();
       });
     });
+    this.options.container.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((button) => {
+      button.addEventListener('click', () => {
+        this.markMode = (button.dataset.mode as MarkMode) ?? 'yes';
+        this.status = this.modeStatus();
+        this.statusTone = 'neutral';
+        this.render();
+      });
+    });
   }
 
   private handleAction(action: string): void {
@@ -280,13 +297,31 @@ export class TinyDispatchPrototype {
 
   private cycleMark(category: Category, courier: string, item: string): void {
     const current = this.marks[category][courier][item];
-    const next: Mark = current === 'unknown' ? 'no' : current === 'no' ? 'yes' : 'unknown';
+    const next = this.nextMark(current);
     this.marks[category][courier][item] = next;
     if (next === 'yes') this.applyPeerElimination(category, courier, item);
     if (next === 'unknown') this.recomputePeerEliminations();
-    this.status = next === 'yes' ? '확정 표시를 했습니다. 같은 줄과 같은 항목의 나머지 후보는 제외됩니다.' : '표시를 바꿨습니다.';
+    this.status = this.markStatus(next);
     this.statusTone = 'neutral';
     this.render();
+  }
+
+  private nextMark(current: Mark): Mark {
+    if (this.markMode === 'erase') return 'unknown';
+    if (this.markMode === 'yes') return current === 'yes' ? 'unknown' : 'yes';
+    return current === 'no' ? 'unknown' : 'no';
+  }
+
+  private markStatus(mark: Mark): string {
+    if (mark === 'yes') return '확정했습니다. 같은 줄과 같은 항목의 나머지 후보는 자동으로 제외됩니다.';
+    if (mark === 'no') return '제외했습니다. 단서와 맞지 않는 후보를 X로 지워 나가세요.';
+    return '표시를 지웠습니다.';
+  }
+
+  private modeStatus(): string {
+    if (this.markMode === 'yes') return '확정 모드입니다. 맞다고 생각하는 칸을 누르면 ✓가 표시됩니다.';
+    if (this.markMode === 'no') return '제외 모드입니다. 아니라고 생각하는 칸을 누르면 ×가 표시됩니다.';
+    return '지우기 모드입니다. 표시를 지울 칸을 누르세요.';
   }
 
   private applyPeerElimination(category: Category, courier: string, item: string): void {
@@ -399,9 +434,17 @@ export class TinyDispatchPrototype {
 
   private baseRules(puzzle: Puzzle): string[] {
     if (puzzle.id === 'first-board') {
-      return ['각 배달원은 소포 1개와 목적지 1곳만 맡습니다.', '같은 소포와 목적지는 한 번씩만 사용합니다.', '표시는 빈칸 -> X -> 체크 순서로 바뀝니다.'];
+      return [
+        '소포 보드에서 배달원마다 맡을 소포 1개를 체크합니다.',
+        '목적지 보드에서 배달원마다 갈 목적지 1곳을 체크합니다.',
+        '기본은 확정 모드입니다. 틀린 후보를 지우려면 × 제외 모드를 누르세요.'
+      ];
     }
-    return ['이전 규칙은 그대로 적용됩니다.', '확정 체크를 하면 같은 줄과 같은 항목의 나머지 후보가 X로 바뀝니다.', '완성했다고 생각하면 확인을 누르세요.'];
+    return [
+      '위 보드는 소포, 아래 보드는 목적지입니다.',
+      '확정 체크를 하면 같은 줄과 같은 항목의 나머지 후보가 X로 바뀝니다.',
+      '각 배달원의 소포와 목적지를 모두 체크한 뒤 확인을 누르세요.'
+    ];
   }
 
   private learningGoalText(puzzle: Puzzle): string {

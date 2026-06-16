@@ -347,6 +347,28 @@ body.is-game-route * {
   padding-left: 18px;
 }
 
+.td-modebar {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.td-modebar button {
+  min-height: 38px;
+  border: 1px solid #cbd5c8;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #202820;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.td-modebar button.active {
+  border-color: #5d8f66;
+  background: #dff2e1;
+  color: #1f5d2a;
+}
+
 .td-workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
@@ -376,6 +398,13 @@ body.is-game-route * {
   color: #263225;
   font-size: 14px;
   font-weight: 800;
+}
+
+.td-board-help {
+  margin: -2px 0 10px;
+  color: #5b6659;
+  font-size: 13px;
+  line-height: 1.35;
 }
 
 .td-grid {

@@ -84,6 +84,11 @@ async function main() {
     assert(shell.docW <= shell.innerW + 1, `tiny dispatch has horizontal overflow: ${JSON.stringify(shell)}`);
     assert(shell.title?.includes('첫 배달'), `unexpected title: ${JSON.stringify(shell)}`);
 
+    await page.locator('[data-category="parcels"][data-courier="mina"][data-item="lantern"]').click();
+    const firstTapText = await page.locator('[data-category="parcels"][data-courier="mina"][data-item="lantern"]').innerText();
+    assert(firstTapText.includes('✓'), `first tap should visibly confirm a cell, got ${firstTapText}`);
+    await page.getByRole('button', { name: '리셋' }).click();
+
     await fillWrongFirstBoard(page);
     await page.getByRole('button', { name: '확인' }).click();
     await page.waitForFunction(() => window.__tinyDispatchState?.status.includes('아직 맞지 않습니다'), null, {
