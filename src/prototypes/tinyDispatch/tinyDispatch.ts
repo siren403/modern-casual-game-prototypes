@@ -6,6 +6,12 @@ import { checkSolution } from './puzzleValidator.js';
 type Mark = 'unknown' | 'no' | 'yes';
 type MarkMode = 'yes' | 'no' | 'erase';
 type Category = 'parcels' | 'destinations';
+type ClueTarget = {
+  category: Category;
+  courier?: string;
+  item: string;
+  mark?: Mark;
+};
 
 type Entity = {
   id: string;
@@ -193,10 +199,13 @@ export class TinyDispatchPrototype {
               ${puzzle.clues
                 .map(
                   (clue, index) => `
-                    <button type="button" class="td-clue ${this.selectedClueId === clue.id ? 'selected' : ''}" data-clue="${this.escape(clue.id)}">
-                      <span>${index + 1}</span>
-                      <p>${this.escape(this.clueText(clue))}</p>
-                    </button>
+                    <div class="td-clue ${this.selectedClueId === clue.id ? 'selected' : ''}">
+                      <button type="button" class="td-clue-main" data-clue="${this.escape(clue.id)}">
+                        <span>${index + 1}</span>
+                        <p>${this.escape(this.clueText(clue))}</p>
+                      </button>
+                      ${this.canApplyClue(clue) ? `<button type="button" class="td-clue-apply" data-apply-clue="${this.escape(clue.id)}">단서 적용</button>` : ''}
+                    </div>
                   `
                 )
                 .join('')}
@@ -260,7 +269,7 @@ export class TinyDispatchPrototype {
               return `
                 <button
                   type="button"
-                  class="td-choice ${mark}"
+                  class="td-choice ${mark} ${this.choiceRelationClass(category, courier.id, entity.id)}"
                   data-category="${category}"
                   data-courier="${this.escape(courier.id)}"
                   data-item="${this.escape(entity.id)}"
@@ -289,11 +298,16 @@ export class TinyDispatchPrototype {
         this.cycleMark(category, courier, item);
       });
     });
-    this.options.container.querySelectorAll<HTMLButtonElement>('.td-clue').forEach((button) => {
+    this.options.container.querySelectorAll<HTMLButtonElement>('.td-clue-main').forEach((button) => {
       button.addEventListener('click', () => {
         this.selectedClueId = button.dataset.clue ?? '';
+        this.status = this.selectedClueStatus();
+        this.statusTone = 'neutral';
         this.render();
       });
+    });
+    this.options.container.querySelectorAll<HTMLButtonElement>('[data-apply-clue]').forEach((button) => {
+      button.addEventListener('click', () => this.applyClue(button.dataset.applyClue ?? ''));
     });
     this.options.container.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((button) => {
       button.addEventListener('click', () => {
@@ -390,6 +404,65 @@ export class TinyDispatchPrototype {
     this.statusTone = 'neutral';
     this.hintIndex += 1;
     this.render();
+  }
+
+  private applyClue(clueId: string): void {
+    const clue = this.puzzle.clues.find((candidate) => candidate.id === clueId);
+    if (!clue) return;
+    const targets = this.clueTargets(clue).filter((target) => target.courier && target.mark);
+    if (targets.length === 0) return;
+    for (const target of targets) {
+      this.marks[target.category][target.courier as string][target.item] = target.mark as Mark;
+    }
+    this.selectedClueId = clueId;
+    this.status = '단서를 후보에 표시했습니다. 이제 다른 단서와 맞춰 보세요.';
+    this.statusTone = 'neutral';
+    this.render();
+  }
+
+  private canApplyClue(clue: Clue): boolean {
+    return this.clueTargets(clue).some((target) => target.courier && target.mark);
+  }
+
+  private selectedClueStatus(): string {
+    const clue = this.puzzle.clues.find((candidate) => candidate.id === this.selectedClueId);
+    if (!clue) return this.status;
+    if (this.canApplyClue(clue)) return '강조된 후보를 보고, 원하면 단서 적용을 눌러 바로 표시하세요.';
+    return '강조된 후보들이 이 단서와 연결됩니다. 어떤 배달원에게 이어지는지 추론해 보세요.';
+  }
+
+  private choiceRelationClass(category: Category, courier: string, item: string): string {
+    const clue = this.puzzle.clues.find((candidate) => candidate.id === this.selectedClueId);
+    if (!clue) return '';
+    const targets = this.clueTargets(clue);
+    const exact = targets.some((target) => target.category === category && target.courier === courier && target.item === item);
+    if (exact) return 'related exact';
+    const related = targets.some((target) => target.category === category && !target.courier && target.item === item);
+    return related ? 'related' : '';
+  }
+
+  private clueTargets(clue: Clue): ClueTarget[] {
+    if (clue.type === 'courier_parcel_yes') return [{ category: 'parcels', courier: clue.courier, item: clue.parcel ?? '', mark: 'yes' }];
+    if (clue.type === 'courier_parcel_no') return [{ category: 'parcels', courier: clue.courier, item: clue.parcel ?? '', mark: 'no' }];
+    if (clue.type === 'courier_destination_yes') {
+      return [{ category: 'destinations', courier: clue.courier, item: clue.destination ?? '', mark: 'yes' }];
+    }
+    if (clue.type === 'courier_destination_no') {
+      return [{ category: 'destinations', courier: clue.courier, item: clue.destination ?? '', mark: 'no' }];
+    }
+    if (clue.type === 'courier_parcel_either') {
+      return (clue.parcels ?? []).map((parcel) => ({ category: 'parcels', courier: clue.courier, item: parcel }));
+    }
+    if (clue.type === 'courier_destination_either') {
+      return (clue.destinations ?? []).map((destination) => ({ category: 'destinations', courier: clue.courier, item: destination }));
+    }
+    if (clue.type === 'parcel_destination_link' || clue.type === 'parcel_destination_no') {
+      return [
+        { category: 'parcels', item: clue.parcel ?? '' },
+        { category: 'destinations', item: clue.destination ?? '' }
+      ];
+    }
+    return [];
   }
 
   private currentHintText(): string {
