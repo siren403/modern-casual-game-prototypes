@@ -85,6 +85,9 @@ async function main() {
     assert(shell.docW <= shell.innerW + 1, `tiny dispatch has horizontal overflow: ${JSON.stringify(shell)}`);
     assert(shell.viewport.includes('user-scalable=no'), `viewport does not disable zoom: ${JSON.stringify(shell)}`);
     assert(shell.title?.includes('첫 배달'), `unexpected title: ${JSON.stringify(shell)}`);
+    assert((await page.locator('.td-courier-card').count()) === 3, 'first board should render three courier cards');
+    assert((await page.locator('.td-grid').count()) === 0, 'grid UI should not be present in Tiny Dispatch');
+    assert(await page.getByText('배달원별 후보 선택').isVisible(), 'direct assignment heading should be visible');
 
     await page.locator('[data-category="parcels"][data-courier="mina"][data-item="lantern"]').click();
     const firstTapText = await page.locator('[data-category="parcels"][data-courier="mina"][data-item="lantern"]').innerText();
