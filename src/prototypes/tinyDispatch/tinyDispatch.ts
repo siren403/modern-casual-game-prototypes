@@ -184,8 +184,7 @@ export class TinyDispatchPrototype {
 
         <section class="td-workspace">
           <section class="td-board-wrap" aria-label="배정 보드">
-            ${this.renderBoard('parcels', puzzle.entities.parcels, '1. 소포 후보표', '왼쪽은 배달원, 위쪽은 소포 이름입니다. 빈 후보칸만 누르세요. 예: 미나 줄의 랜턴 칸은 "미나가 랜턴을 맡는다"는 뜻입니다.')}
-            ${this.renderBoard('destinations', puzzle.entities.destinations, '2. 목적지 후보표', '왼쪽은 배달원, 위쪽은 목적지 이름입니다. 예: 미나 줄의 정원 칸은 "미나가 정원으로 간다"는 뜻입니다.')}
+            ${this.renderAssignmentCards()}
           </section>
 
           <aside class="td-side">
@@ -222,36 +221,56 @@ export class TinyDispatchPrototype {
     this.publishDebugState();
   }
 
-  private renderBoard(category: Category, entities: Entity[], title: string, help: string): string {
-    const couriers = this.puzzle.entities.couriers;
+  private renderAssignmentCards(): string {
+    const { couriers } = this.puzzle.entities;
     return `
-      <div class="td-board" data-board="${category}">
-        <div class="td-board-title">${this.escape(title)}</div>
-        <p class="td-board-help">${this.escape(help)}</p>
-        <div class="td-grid" style="--td-cols: ${entities.length + 1}">
-          <div class="td-cell td-head"></div>
-          ${entities.map((entity) => `<div class="td-cell td-head">${this.escape(this.label(entity.id))}</div>`).join('')}
-          ${couriers
-            .map(
-              (courier) => `
-                <div class="td-cell td-rowhead">${this.escape(this.label(courier.id))}</div>
-                ${entities
-                  .map((entity) => {
-                    const mark = this.marks[category][courier.id][entity.id];
-                    return `
-                      <button
-                        type="button"
-                        class="td-cell td-mark ${mark}"
-                        data-category="${category}"
-                        data-courier="${this.escape(courier.id)}"
-                        data-item="${this.escape(entity.id)}"
-                        aria-label="${this.escape(`${this.label(courier.id)} ${this.label(entity.id)} ${this.markLabel(mark)}`)}"
-                      >${this.markGlyph(mark)}</button>
-                    `;
-                  })
-                  .join('')}
-              `
-            )
+      <div class="td-board">
+        <div class="td-board-title">배달원별 후보 선택</div>
+        <p class="td-board-help">각 배달원 카드에서 맡을 소포 1개와 갈 목적지 1개를 ✓로 표시하세요. 단서와 맞지 않는 후보는 × 제외 모드로 지울 수 있습니다.</p>
+        <div class="td-courier-cards">
+          ${couriers.map((courier) => this.renderCourierCard(courier)).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  private renderCourierCard(courier: Entity): string {
+    const parcelYes = this.singleYes(this.marks.parcels[courier.id]);
+    const destinationYes = this.singleYes(this.marks.destinations[courier.id]);
+    return `
+      <article class="td-courier-card">
+        <header>
+          <strong>${this.escape(this.label(courier.id))}</strong>
+          <span>${this.assignmentSummary(parcelYes, destinationYes)}</span>
+        </header>
+        ${this.renderChoiceGroup('parcels', courier, '맡을 소포', this.puzzle.entities.parcels)}
+        ${this.renderChoiceGroup('destinations', courier, '갈 목적지', this.puzzle.entities.destinations)}
+      </article>
+    `;
+  }
+
+  private renderChoiceGroup(category: Category, courier: Entity, title: string, entities: Entity[]): string {
+    return `
+      <div class="td-choice-group">
+        <div class="td-choice-title">${this.escape(title)}</div>
+        <div class="td-choice-list">
+          ${entities
+            .map((entity) => {
+              const mark = this.marks[category][courier.id][entity.id];
+              return `
+                <button
+                  type="button"
+                  class="td-choice ${mark}"
+                  data-category="${category}"
+                  data-courier="${this.escape(courier.id)}"
+                  data-item="${this.escape(entity.id)}"
+                  aria-label="${this.escape(`${this.label(courier.id)} ${title} ${this.label(entity.id)} ${this.markLabel(mark)}`)}"
+                >
+                  <span>${this.escape(this.label(entity.id))}</span>
+                  <b>${this.markGlyph(mark)}</b>
+                </button>
+              `;
+            })
             .join('')}
         </div>
       </div>
@@ -262,7 +281,7 @@ export class TinyDispatchPrototype {
     this.options.container.querySelectorAll<HTMLButtonElement>('[data-action]').forEach((button) => {
       button.addEventListener('click', () => this.handleAction(button.dataset.action ?? ''));
     });
-    this.options.container.querySelectorAll<HTMLButtonElement>('.td-mark').forEach((button) => {
+    this.options.container.querySelectorAll<HTMLButtonElement>('.td-choice').forEach((button) => {
       button.addEventListener('click', () => {
         const category = button.dataset.category as Category;
         const courier = button.dataset.courier ?? '';
@@ -312,8 +331,8 @@ export class TinyDispatchPrototype {
   }
 
   private markStatus(mark: Mark): string {
-    if (mark === 'yes') return '이 칸만 확정했습니다. 다른 후보를 지우려면 × 제외 모드를 사용하세요.';
-    if (mark === 'no') return '제외했습니다. 단서와 맞지 않는 후보를 X로 지워 나가세요.';
+    if (mark === 'yes') return '선택한 후보만 ✓로 표시했습니다. 같은 사람의 다른 후보는 직접 제외하거나 지울 수 있습니다.';
+    if (mark === 'no') return '선택한 후보를 제외했습니다. 단서와 맞지 않는 후보를 ×로 지워 나가세요.';
     return '표시를 지웠습니다.';
   }
 
@@ -417,16 +436,22 @@ export class TinyDispatchPrototype {
   private baseRules(puzzle: Puzzle): string[] {
     if (puzzle.id === 'first-board') {
       return [
-        '왼쪽/위쪽 라벨칸은 이름표라 누르지 않습니다. 안쪽 빈 후보칸만 누릅니다.',
-        '소포 후보표에서 "누가 어떤 소포를 맡는지" 체크합니다.',
-        '목적지 후보표에서 "누가 어디로 가는지" 체크합니다.'
+        '각 배달원은 소포 1개만 맡고, 목적지 1곳만 갑니다.',
+        '단서를 읽고 배달원 카드 안에서 맞는 후보를 ✓로 표시합니다.',
+        '아니라고 확신한 후보는 × 제외 모드로 표시해 둘 수 있습니다.'
       ];
     }
     return [
-      '위는 소포 후보표, 아래는 목적지 후보표입니다.',
+      '각 배달원 카드에서 소포 후보와 목적지 후보를 따로 표시합니다.',
       '기본은 ✓ 확정 모드입니다. X를 표시하려면 × 제외 모드를 선택하세요.',
       '각 배달원의 소포와 목적지를 모두 체크한 뒤 확인을 누르세요.'
     ];
+  }
+
+  private assignmentSummary(parcel: string | undefined, destination: string | undefined): string {
+    const parcelText = parcel ? this.label(parcel) : '소포 미정';
+    const destinationText = destination ? this.label(destination) : '목적지 미정';
+    return `${parcelText} / ${destinationText}`;
   }
 
   private learningGoalText(puzzle: Puzzle): string {
